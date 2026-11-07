@@ -1,0 +1,14 @@
+{
+  "name": "astro-310-orbit-explorer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/physics.test.mjs",
+    "test:browser": "python tests/browser.py",
+    "serve": "python -m http.server 8000 --bind 0.0.0.0"
+  },
+  "dependencies": { "three": "0.170.0" },
+  "devDependencies": { "esbuild": "0.25.0" }
+}
