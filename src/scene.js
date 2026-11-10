@@ -13,6 +13,9 @@ const color={orbit:0x77e2e6,orange:0xffbd75,reference:0x637f9a,axis:0x9eb5cb,nod
 export class OrbitScene {
   constructor(container) {
     this.container=container;this.labelsEl=document.querySelector('#scene-labels');this.labels=[];
+    this.labelSizes=new WeakMap();
+    this.labelLeaders=document.createElementNS('http://www.w3.org/2000/svg','svg');
+    this.labelLeaders.classList.add('label-leaders');this.labelLeaders.setAttribute('aria-hidden','true');this.labelsEl.append(this.labelLeaders);
     this.width=1;this.height=1;this.theme='night';this.view='oblique';this.o=null;this.dirty=true;
     try{this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,powerPreference:'high-performance'});}
     catch(e){document.querySelector('#webgl-error').hidden=false;this.error=e;return;}
@@ -75,7 +78,11 @@ export class OrbitScene {
     if(this.error)return;
     this.dirty=true;
     this.width=Math.max(1,this.container.clientWidth);this.height=Math.max(1,this.container.clientHeight);
-    this.camera.aspect=this.width/this.height;this.camera.updateProjectionMatrix();this.renderer.setSize(this.width,this.height);
+    const oldFit=Math.min(1,this.camera.aspect);
+    this.camera.aspect=this.width/this.height;
+    this.camera.position.sub(this.controls.target).multiplyScalar(oldFit/Math.min(1,this.camera.aspect)).add(this.controls.target);
+    this.camera.updateProjectionMatrix();this.renderer.setSize(this.width,this.height);
+    this.labelSizes=new WeakMap();
     this.scene.traverse(o=>{if(o.material?.isLineMaterial)o.material.resolution.set(this.width,this.height);});
   }
   clear(group){
@@ -89,7 +96,7 @@ export class OrbitScene {
   }
   label(text,pos,type='',scope='reference'){
     const el=document.createElement('span');el.className='scene-label '+type;el.textContent=text;this.labelsEl.append(el);
-    this.labels.push({el,pos,scope});
+    this.labels.push({el,pos,scope,text});
   }
   clearLabels(scope){this.labels=this.labels.filter(l=>{if(l.scope===scope){l.el.remove();return false;}return true;});}
   circlePoints(radius,fn=([x,y])=>new THREE.Vector3(x,0,y),n=160){return Array.from({length:n+1},(_,j)=>fn([radius*Math.cos(j/n*TAU),radius*Math.sin(j/n*TAU),0]));}
@@ -120,7 +127,7 @@ export class OrbitScene {
     if(axes){for(const [vec,name] of [[[1,0,0],'+I'],[[0,1,0],'+J'],[[0,0,1],'+K']]){
       const v=xyz(vec).multiplyScalar(Math.max(1.6,a*.9));this.line([v.clone().negate(),v],this.referenceGroup,{color:color.axis,width:1.1,opacity:.48,dashed:true});this.label(name,v.clone().multiplyScalar(1.08));
     }}
-    if(!eq&&(options.markers||['i','raan','arg','nu'].includes(selected))){
+    if(!eq&&(options.markers||['raan','arg','nu'].includes(selected))){
       const nodes=nodeStates(o);nodes.forEach((s,j)=>{
         const p=eci(s.position);const marker=new THREE.Mesh(new THREE.SphereGeometry(.035,12,12),new THREE.MeshBasicMaterial({color:color.node}));marker.position.copy(p);this.referenceGroup.add(marker);this.label(j?'Descending node':'Ascending node',p.clone().multiplyScalar(1.1));
       });
@@ -207,6 +214,44 @@ export class OrbitScene {
     if(this.error)return;this.dirty=true;this.stars.visible=theme==='night';
     this.positionArrow.setColor(color.orbit);this.velocityArrow.setColor(color.orange);this.projection.material.color.set(color.orange);
   }
+  layoutLabels(spacecraftPosition){
+    const aliases={'Ascending node':'AN','Descending node':'DN'};
+    const labels=[{el:this.spacecraftLabel,pos:spacecraftPosition,text:'Spacecraft',scope:'spacecraft'},...this.labels];
+    const priority=l=>l.scope==='angle'?100:l.scope==='spacecraft'?95:l.text==='h'?90:l.el.classList.contains('angle')?85:l.text.startsWith('+')?80:l.text.includes('node')?70:50;
+    labels.sort((a,b)=>priority(b)-priority(a));
+    const occupied=[],leaders=[];
+    const hint=this.container.querySelector('.scene-hint');
+    const bottom=hint&&getComputedStyle(hint).display!=='none'?25:5;
+    for(const l of labels){
+      const text=this.width<620?(aliases[l.text]||l.text):l.text;
+      if(l.el.textContent!==text){l.el.textContent=text;this.labelSizes.delete(l.el);}
+      const p=l.pos.clone().project(this.camera),ray=l.pos.clone().sub(this.camera.position),distance=ray.length(),rdir=ray.clone().normalize();
+      const along=-this.camera.position.dot(rdir),closest=this.camera.position.clone().addScaledVector(rdir,along);
+      const occluded=along>0&&along<distance&&closest.length()<.98;
+      if(p.z>1||p.z< -1||Math.abs(p.x)>1||Math.abs(p.y)>1||occluded){l.el.style.display='none';continue;}
+      l.el.style.display='';
+      let size=this.labelSizes.get(l.el);
+      if(!size){size={w:l.el.offsetWidth,h:l.el.offsetHeight};this.labelSizes.set(l.el,size);}
+      const {w,h}=size,x=(p.x*.5+.5)*this.width,y=(-p.y*.5+.5)*this.height;
+      const offsets=l.scope==='spacecraft'?[[0,-25],[w/2+14,0],[-w/2-14,0],[0,25]]:
+        [[0,0],[0,-h-9],[0,h+9],[w/2+14,0],[-w/2-14,0],[w/2+10,-h-9],[-w/2-10,h+9]];
+      let placed=null;
+      for(const [dx,dy] of offsets){
+        const cx=Math.max(w/2+6,Math.min(this.width-w/2-6,x+dx));
+        const cy=Math.max(h/2+6,Math.min(this.height-h/2-bottom,y+dy));
+        const box={left:cx-w/2,right:cx+w/2,top:cy-h/2,bottom:cy+h/2};
+        if(w>this.width-12||h>this.height-bottom-12)continue;
+        if(occupied.some(b=>box.left<b.right+5&&box.right>b.left-5&&box.top<b.bottom+4&&box.bottom>b.top-4))continue;
+        placed={cx,cy,...box};break;
+      }
+      if(!placed){l.el.style.display='none';continue;}
+      occupied.push(placed);l.el.style.left=placed.cx+'px';l.el.style.top=placed.cy+'px';
+      const ex=Math.max(placed.left,Math.min(placed.right,x)),ey=Math.max(placed.top,Math.min(placed.bottom,y));
+      if(Math.hypot(ex-x,ey-y)>7)leaders.push(`M${x.toFixed(1)},${y.toFixed(1)}L${ex.toFixed(1)},${ey.toFixed(1)}`);
+    }
+    this.labelLeaders.setAttribute('viewBox',`0 0 ${this.width} ${this.height}`);
+    this.labelLeaders.innerHTML=leaders.length?`<path d="${leaders.join('')}"/>`:'';
+  }
   render(s,earthAngle){
     if(this.error)return;
     this.controls.update();
@@ -222,21 +267,7 @@ export class OrbitScene {
     arr.setXYZ(0,...this.subpoint.position.toArray());arr.setXYZ(1,...pos.toArray());arr.needsUpdate=true;this.projection.computeLineDistances();
     this.positionArrow.setDirection(pos.clone().normalize());this.positionArrow.setLength(pos.length(),.12,.06);
     this.velocityArrow.position.copy(pos);this.velocityArrow.setDirection(dir);this.velocityArrow.setLength(.7,.12,.06);
-    const satelliteScreen=pos.clone().project(this.camera);
-    const satelliteRay=pos.clone().sub(this.camera.position).normalize(),satelliteAlong=-this.camera.position.dot(satelliteRay);
-    const satelliteClosest=this.camera.position.clone().addScaledVector(satelliteRay,satelliteAlong);
-    const satelliteHidden=satelliteAlong>0&&satelliteAlong<this.camera.position.distanceTo(pos)&&satelliteClosest.length()<1;
-    this.spacecraftLabel.style.display=satelliteHidden||satelliteScreen.z>1||Math.abs(satelliteScreen.x)>.97||Math.abs(satelliteScreen.y)>.97?'none':'';
-    this.spacecraftLabel.style.left=(satelliteScreen.x*.5+.5)*this.width+'px';this.spacecraftLabel.style.top=((-satelliteScreen.y*.5+.5)*this.height-24)+'px';
-    for(const l of this.labels){
-      const p=l.pos.clone().project(this.camera);
-      const ray=l.pos.clone().sub(this.camera.position),distance=ray.length(),rdir=ray.clone().normalize();
-      const closest=this.camera.position.clone().addScaledVector(rdir,-this.camera.position.dot(rdir));
-      const along=-this.camera.position.dot(rdir);
-      const occluded=along>0&&along<distance&&closest.length()<.98;
-      l.el.style.display=p.z>1||p.z< -1||Math.abs(p.x)>1.05||Math.abs(p.y)>1.05||occluded?'none':'';
-      l.el.style.left=(p.x*.5+.5)*this.width+'px';l.el.style.top=(-p.y*.5+.5)*this.height+'px';
-    }
+    this.layoutLabels(pos);
     this.renderer.render(this.scene,this.camera);
   }
 }

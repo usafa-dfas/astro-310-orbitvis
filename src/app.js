@@ -4,6 +4,12 @@ import {MU,EARTH_RADIUS,SIDEREAL_DAY,EARTH_RATE,DEG,TAU,mod,clamp,norm,period,me
 
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const svgNS='http://www.w3.org/2000/svg';
+const compactQuery=matchMedia('(min-width: 801px) and (max-width: 1250px), (min-width: 801px) and (max-height: 820px)');
+let compactOverride=null,mapScale=1;
+document.body.classList.toggle('compact-controls',compactQuery.matches);
+const guideSelected=document.createElement('section');guideSelected.className='guide-selected';
+guideSelected.innerHTML='<h3 id="guide-element-title"></h3><p id="guide-element-text"></p><p id="guide-element-note"></p>';
+$('#guide-dialog .dialog-lead').after(guideSelected);
 const playIcon='<svg width="16" height="18" viewBox="0 0 16 18" aria-hidden="true"><path d="M2 1L15 9L2 17Z" fill="currentColor"/></svg>';
 const pauseIcon='<svg width="16" height="18" viewBox="0 0 16 18" aria-hidden="true"><path d="M2 1H6V17H2ZM10 1H14V17H10Z" fill="currentColor"/></svg>';
 const svg=(tag,attrs,parent)=>{const el=document.createElementNS(svgNS,tag);for(const [k,v]of Object.entries(attrs))el.setAttribute(k,v);if(parent)parent.append(el);return el;};
@@ -45,9 +51,10 @@ function fieldValue(key,s=current()){
 }
 function makeControls(){
   const dock=$('#element-dock');dock.replaceChildren();
-  for(const key of Object.keys(definitions)){
+  for(const [index,key] of Object.keys(definitions).entries()){
     const d=descriptor(key),card=document.createElement('div');card.className='element-card';card.dataset.key=key;
-    card.innerHTML=`<button class="element-select" aria-pressed="false" title="Explain ${d.full}"><span class="element-symbol">${d.symbol}</span><span class="element-name">${d.name}</span></button><div class="element-value"><input type="number" inputmode="decimal" aria-label="${d.full}" min="${d.min}" max="${d.max}" step="${key==='a'?'0.01':key==='e'?'0.001':'0.1'}"><span class="unit">${d.unit}</span><span class="undefined-label" hidden>Undefined</span></div><input type="range" min="${d.min}" max="${d.max}" step="${d.step}" aria-label="Adjust ${d.full}"><div class="element-description">${d.full.toUpperCase()}</div>`;
+    card.style.setProperty('--element-column',index+1);
+    card.innerHTML=`<button class="element-select" aria-pressed="false" title="Explain ${d.full}"><span class="element-symbol">${d.symbol}</span><span class="element-name">${d.name}</span><span class="element-summary" aria-hidden="true"></span></button><div class="element-value"><input type="number" inputmode="decimal" aria-label="${d.full}" min="${d.min}" max="${d.max}" step="${key==='a'?'0.01':key==='e'?'0.001':'0.1'}"><span class="unit">${d.unit}</span><span class="undefined-label" hidden>Undefined</span></div><input type="range" min="${d.min}" max="${d.max}" step="${d.step}" aria-label="Adjust ${d.full}"><div class="element-description">${d.full.toUpperCase()}</div>`;
     card.querySelector('button').addEventListener('click',()=>selectElement(key));
     const input=card.querySelector('input[type=number]'),range=card.querySelector('input[type=range]');
     range.addEventListener('pointerdown',()=>{pause('PAUSED · ADJUSTING ELEMENT');selectElement(key);});
@@ -70,6 +77,9 @@ function updateControls(force=false){
     input.hidden=!!d.disabled;card.querySelector('.unit').hidden=!!d.disabled;card.querySelector('.undefined-label').hidden=!d.disabled;
     input.disabled=range.disabled=!!d.disabled;
     input.setAttribute('aria-label',d.full);range.setAttribute('aria-label','Adjust '+d.full);btn.title='Explain '+d.full;
+    const summary=card.querySelector('.element-summary'),v=fieldValue(key,s);
+    summary.innerHTML=d.disabled?'Undefined':`${number(v,key==='a'?0:key==='e'?3:1)}<small>${d.unit?' '+d.unit:''}</small>`;
+    btn.setAttribute('aria-label',`${d.full}: ${d.disabled?'undefined':number(v,key==='e'?3:1)+' '+d.unit}`);
     if(!d.disabled){const v=fieldValue(key,s);if(force||document.activeElement!==input)input.value=formatInput(key,v);range.value=v;range.setAttribute('aria-valuetext',`${number(v,key==='e'?3:1)} ${d.unit}`);}
   }
   const o=state.o;
@@ -114,6 +124,7 @@ function updateConcept(){
   $('#prompt-button').hidden=!$('#quarter-turns').hidden;
   const note=circ&&eq?'Circular + equatorial: Ω, ω and ν are undefined. Use true longitude ℓ.':circ?'Circular orbit: ω and ν are undefined. Use argument of latitude u.':eq?'Equatorial orbit: Ω and ω are undefined. Use longitude of perigee Π.':'';
   $('#alternate-note').hidden=!note;$('#alternate-note').textContent=note;
+  $('#guide-element-title').textContent=d.symbol+' · '+d.full;$('#guide-element-text').textContent=d.text;$('#guide-element-note').textContent=note;
   $('#guide-prompt').textContent=PRESETS[state.preset].prompt;
 }
 function updateMetrics(){
@@ -154,9 +165,15 @@ function buildMap(){
   new ResizeObserver(()=>{
     const scale=Math.min(map.clientWidth/1170,map.clientHeight/620);
     if(scale<=0)return;
+    mapScale=scale;
     const size=clamp((innerWidth>=1700?18:14)/scale,24,53);
     map.style.setProperty('--map-label-size',size+'px');map.style.setProperty('--map-lat-size',size*.9+'px');
     for(const label of $$('#map-axis-labels .map-axis-label:not(.lat)'))label.setAttribute('y',532+size*1.25);
+    $('#ground-point .point-center').setAttribute('r',5/scale);
+    $('#ground-point .point-ring').setAttribute('r',10/scale);
+    $('#ground-point circle:first-child').setAttribute('r',21/scale);
+    for(const node of $$('.map-node'))node.setAttribute('r',4/scale);
+    trackDirty=true;
   }).observe(map);
 }
 function renderTrack(){
@@ -176,7 +193,7 @@ function renderTrack(){
     for(let j=0;j<2;j++){
       const t=dt+j*P,g=groundPoint(stateAt(o,t).position,angle+(state.rotating?EARTH_RATE:0)*t);
       if(g.lon===null)continue;
-      svg('circle',{cx:mapX(g.lon),cy:mapY(g.lat),r:6,class:'map-node'},nodes);
+      svg('circle',{cx:mapX(g.lon),cy:mapY(g.lat),r:4/mapScale,class:'map-node'},nodes);
       const text=svg('text',{x:mapX(g.lon)+10,y:mapY(g.lat)-11,class:'map-node-label'},nodes);text.textContent=`AN${j+1}`;
     }
   }
@@ -185,7 +202,7 @@ function renderTrack(){
   for(let j=step;j<points.length-1;j+=step){
     const a=points[j],b=points[j+1];if(a.lon===null||b.lon===null||Math.abs(a.lon-b.lon)>30||Math.abs(a.lat)>86)continue;
     const dx=mapX(b.lon)-mapX(a.lon),dy=mapY(b.lat)-mapY(a.lat);if(Math.hypot(dx,dy)<.01)continue;
-    const g=svg('path',{d:'M-7,-4 L0,0 L-7,4',fill:'none',stroke:'var(--accent)','stroke-width':2.3,opacity:.8,transform:`translate(${mapX(a.lon)},${mapY(a.lat)}) rotate(${Math.atan2(dy,dx)/DEG})`},arrows);
+    const g=svg('path',{d:'M-7,-4 L0,0 L-7,4',fill:'none',stroke:'var(--accent)','stroke-width':2.3,opacity:.8,transform:`translate(${mapX(a.lon)},${mapY(a.lat)}) rotate(${Math.atan2(dy,dx)/DEG}) scale(${Math.max(1,.8/mapScale)})`},arrows);
   }
   trackDirty=false;
 }
@@ -247,14 +264,27 @@ $('#fullscreen').addEventListener('click',async()=>{
 });
 document.addEventListener('fullscreenchange',()=>$('#fullscreen').setAttribute('aria-label',document.fullscreenElement?'Exit fullscreen':'Enter fullscreen'));
 const dialog=$('#guide-dialog');
-for(const id of ['help','model-info','prompt-button'])$('#'+id).addEventListener('click',()=>dialog.showModal());
+for(const id of ['help','model-info','prompt-button','explain-element'])$('#'+id).addEventListener('click',()=>{dialog.showModal();dialog.scrollTop=0;});
 $('#close-guide').addEventListener('click',()=>dialog.close());
 dialog.addEventListener('click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close();}});
 document.addEventListener('keydown',e=>{if(e.code==='Space'&&!dialog.open&&!['INPUT','BUTTON','SELECT','SUMMARY','TEXTAREA'].includes(document.activeElement?.tagName)){e.preventDefault();togglePlay();}});
 document.addEventListener('pointerdown',e=>{for(const d of $$('details.overlay-menu[open]'))if(!d.contains(e.target))d.open=false;});
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&state.playing)pause('PAUSED · TAB WAS HIDDEN');});
 
-buildMap();makeControls();updateConcept();updateMetrics();setTimelineBounds();rebuildScene(true);renderTrack();renderCurrent();$('#play .play-icon').innerHTML=playIcon;
+function updateControlMode(){
+  const compact=innerWidth>800&&(compactOverride??compactQuery.matches);
+  document.body.classList.toggle('compact-controls',compact);
+  const button=$('#controls-toggle');button.textContent=compact?'Full controls':'Larger views';
+  button.setAttribute('aria-pressed',String(compact));
+  button.title=compact?'Show all element editors. The views retain their minimum size.':'Use compact controls to give the visualizations more room';
+}
+$('#controls-toggle').addEventListener('click',()=>{
+  compactOverride=!document.body.classList.contains('compact-controls');
+  updateControlMode();if(compactOverride)window.scrollTo(0,0);
+});
+window.addEventListener('resize',updateControlMode);
+
+updateControlMode();buildMap();makeControls();updateConcept();updateMetrics();setTimelineBounds();rebuildScene(true);renderTrack();renderCurrent();$('#play .play-icon').innerHTML=playIcon;
 let previous=performance.now();
 function animate(now){
   const dt=Math.max((now-previous)/1000,0);previous=now;

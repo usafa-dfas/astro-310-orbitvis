@@ -49,6 +49,7 @@ try:
         snapshot=lambda: page.evaluate('window.orbitExplorer.snapshot()')
         set_time=lambda value: page.locator('#time').evaluate('(el,value)=>{el.value=value;el.dispatchEvent(new Event("input",{bubbles:true}));}', value)
         def edit(key,value):
+            page.locator(f'.element-card[data-key="{key}"] button').click()
             field=page.locator(f'.element-card[data-key="{key}"] input[type="number"]')
             field.fill(str(value));field.press('Enter')
         def preset(key):
@@ -146,7 +147,52 @@ try:
 
         page.set_viewport_size({'width':1280,'height':720});page.wait_for_timeout(500)
         check(clean_layout(), '1280×720 layout fits without scrolling')
+        check(page.locator('body').evaluate("el=>el.classList.contains('compact-controls')"), 'short projector viewport automatically uses compact controls')
         page.screenshot(path=str(RESULTS/'orbit-explorer-1280.png'))
+
+        # Reproduce the instructor's screenshot. Checking only page overflow
+        # misses the original failure: both drawing areas fit but were tiny.
+        page.set_viewport_size({'width':931,'height':650})
+        preset('teaching');page.locator('#theme').click()
+        edit('e',0);edit('i',81);set_time(2814);edit('nu',166.9)
+        page.locator('.element-card[data-key="i"] button').click()
+        page.wait_for_timeout(300)
+        dimensions=lambda: page.evaluate("({orbit:document.querySelector('.orbit-canvas').clientHeight,map:document.querySelector('#ground-map').clientHeight,world:document.querySelector('.ocean').getBoundingClientRect().toJSON()})")
+        dims=dimensions()
+        check(clean_layout(), '931×650 projector layout fits without scrolling')
+        check(dims['orbit']>=240, 'projector 3D drawing area remains at least 240 px tall')
+        check(dims['world']['width']>=300 and dims['world']['height']>=150, 'projector world map remains large enough to read')
+        check(page.locator('.element-summary:visible').count()==6, 'compact controls retain all six element values')
+        check(page.locator('.element-card input[type="number"]:visible').count()==1, 'only selected element expands its numeric editor')
+        check(page.get_by_role('spinbutton',name='Inclination',exact=True).is_visible(), 'selected element is directly editable in compact layout')
+        page.screenshot(path=str(RESULTS/'projector-after-931.png'))
+
+        page.locator('#explain-element').click()
+        check('Inclination' in page.locator('#guide-element-title').inner_text(), 'Explain preserves the selected concept in a readable dialog')
+        check('latitude limit' in page.locator('#guide-element-text').inner_text(), 'compact layout keeps the full teaching explanation available')
+        page.keyboard.press('Escape')
+        snapshot_before=snapshot()
+        page.locator('#controls-toggle').click()
+        check(not page.locator('body').evaluate("el=>el.classList.contains('compact-controls')"), 'Full controls restores all element editors')
+        check(dimensions()['orbit']>=240, 'full controls never collapse either visualization on a short display')
+        page.locator('#controls-toggle').click()
+        check(clean_layout(), 'Larger views restores a complete projector layout')
+        check(snapshot()['orbit']==snapshot_before['orbit'] and snapshot()['time']==snapshot_before['time'], 'changing control layout preserves orbit and simulation time')
+
+        page.locator('details.overlay-menu summary').click()
+        for overlay in ['axes','markers','vectors']:
+            page.locator('#overlay-'+overlay).check()
+        page.locator('.element-card[data-key="i"] button').click()
+        page.wait_for_timeout(200)
+        boxes=page.locator('#scene-labels .scene-label:visible').evaluate_all('(els)=>els.map(e=>e.getBoundingClientRect().toJSON())')
+        overlaps=any(a['left']<b['right'] and a['right']>b['left'] and a['top']<b['bottom'] and a['bottom']>b['top'] for i,a in enumerate(boxes) for b in boxes[i+1:])
+        check(len(boxes)>2 and not overlaps, '3D labels stay separated even with all geometry overlays enabled')
+        page.screenshot(path=str(RESULTS/'projector-all-geometry-931.png'))
+        for width,height in [(1024,768),(960,600)]:
+            page.set_viewport_size({'width':width,'height':height});page.wait_for_timeout(150)
+            check(dimensions()['orbit']>=240, f'{width}×{height} viewport protects drawing height instead of shrinking the views')
+            check(page.evaluate('document.documentElement.scrollWidth <= innerWidth'), f'{width}×{height} viewport has no horizontal overflow')
+
         page.set_viewport_size({'width':390,'height':844});page.wait_for_timeout(250)
         check(page.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'narrow-screen layout has no horizontal overflow')
         page.screenshot(path=str(RESULTS/'narrow-screen.png'),full_page=True)

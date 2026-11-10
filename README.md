@@ -25,6 +25,8 @@ For GitHub Pages, publish the repository root from the intended branch using the
 - **Geometry** reveals inertial axes, reference planes, nodes/apsides, R/V/h directions, and the sub-satellite projection. Selecting an element automatically reveals its relevant construction.
 - Turn **Earth rotates** off to show how a nonrotating Earth changes the ground track. A persistent notice identifies this teaching model.
 - **Both / Orbit / Map** adjusts panel proportions. Drag the divider, or focus it and use arrow keys. **Both** restores the balanced split.
+- Short or smaller projector windows automatically use **compact controls**: all six element values stay visible, with one large editor for the selected element. **Larger views / Full controls** switches layouts manually. **Explain** opens the complete selected-element explanation.
+- Drawing areas retain a minimum height. If the full controls cannot fit, the page scrolls instead of squeezing the orbit or map into a narrow strip. The compact layout fits the 931×650 projector screenshot as well as the target display sizes.
 - **Projector** selects a bright theme; fullscreen removes browser chrome. Target layouts are 1920×1080 and 1280×720. A narrower layout stacks the views.
 - **Guide** contains definitions, model assumptions, keyboard controls, and a discussion prompt for the current preset.
 
@@ -63,6 +65,7 @@ Source organization:
 | `src/scene.js` | Three.js globe, camera, geometry overlays and labels |
 | `src/app.js` | Shared simulation state, controls, SVG map and synchronization |
 | `src/shell.html`, `src/style.css` | Semantic interface and responsive themes |
+| `src/projector.css` | Protected drawing sizes and the compact classroom layout |
 | `src/assets/` | Embedded map, Earth image, and supplied emblem |
 | `scripts/build.mjs` | Bundles everything into the root `index.html` |
 
