@@ -18,7 +18,12 @@
   position: absolute; inset: 0; width: 100%; height: 100%;
   overflow: visible; pointer-events: none;
 }
-.label-leaders path { fill: none; stroke: var(--muted); opacity: .55; stroke-width: 1; }
+.label-leaders path { fill: none; stroke: var(--muted); opacity: .65; stroke-width: 1; }
+.label-leaders circle { fill: var(--muted); }
+.label-leaders path.callout-highlight { stroke: var(--orange); }
+.label-leaders circle.callout-highlight { fill: var(--orange); }
+.label-leaders path.callout-angle { stroke: var(--accent); }
+.label-leaders circle.callout-angle { fill: var(--accent); }
 .guide-selected { border-left: 3px solid var(--accent); padding: 1px 18px; background: var(--accent-dim); border-radius: 4px; }
 .guide-selected h3 { margin-top: 12px; }
 .guide-selected p { margin: 8px 0 12px; }
