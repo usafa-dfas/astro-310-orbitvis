@@ -23,6 +23,7 @@ For GitHub Pages, publish the repository root from the intended branch using the
 - The time scrubber moves Earth and spacecraft together. Editing the location angle moves the spacecraft at the same instant. Other element edits preserve the displayed location angle and Earth orientation.
 - Drag the 3D view to rotate the camera; scroll or pinch to zoom. The camera menu offers oblique, north-pole, equatorial, and orbit-plane views.
 - **Geometry** reveals inertial axes, reference planes, nodes/apsides, R/V/h directions, and the sub-satellite projection. Selecting an element automatically reveals its relevant construction.
+- Inertial-view labels sit in outer callout columns, clear of the globe and orbit. Thin leader lines end at the actual feature and follow spacecraft motion and camera changes. On narrow views, AN/DN identify the ascending/descending nodes and S/C identifies the spacecraft.
 - Turn **Earth rotates** off to show how a nonrotating Earth changes the ground track. A persistent notice identifies this teaching model.
 - **Both / Orbit / Map** adjusts panel proportions. Drag the divider, or focus it and use arrow keys. **Both** restores the balanced split.
 - Short or smaller projector windows automatically use **compact controls**: all six element values stay visible, with one large editor for the selected element. **Larger views / Full controls** switches layouts manually. **Explain** opens the complete selected-element explanation.
@@ -48,6 +49,11 @@ The course material includes lesson 10's inspection example: R = [9000, 0, 0] km
 ## Development
 
 Node.js 20+ and npm are sufficient for the source build. Use the existing checkout; a separate worktree is unnecessary.
+
+All ongoing edits use the continuing **`app-updates`** branch. Reuse that branch
+for future changes, bringing new `main` commits into it with a normal merge as
+needed. Commit and push there; reviewed updates can then be merged into `main`
+without changing the development branch name.
 
 ```sh
 npm ci
