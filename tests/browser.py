@@ -58,7 +58,7 @@ try:
         def clean_layout():
             return page.evaluate('document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight')
         def callout_report():
-            return page.evaluate('''() => {
+            script='''() => {
               const scene=document.querySelector('.orbit-canvas'),area=scene.getBoundingClientRect();
               const labels=[...document.querySelectorAll('#scene-labels .scene-label')]
                 .filter(el=>getComputedStyle(el).display!=='none');
@@ -82,7 +82,12 @@ try:
               });
               const overlaps=boxes.some((a,i)=>boxes.slice(i+1).some(b=>a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top));
               return {count:labels.length,outside,connected,inside,overlaps,paths:paths.length};
-            }''')
+            }'''
+            # Resizing the pane updates CSS before the renderer's next frame.
+            # Wait for the actual callouts, rather than an arbitrary delay that
+            # can sample the old frame under software WebGL.
+            page.wait_for_function(f'()=>{{const r=({script})();return r.count>=2&&r.outside&&r.connected&&r.inside&&!r.overlaps;}}')
+            return page.evaluate(script)
 
         check(snapshot()['webgl'], 'real WebGL 3D initialized')
         check(not snapshot()['playing'], 'starts paused on teaching ellipse')
@@ -191,8 +196,27 @@ try:
 
         page.set_viewport_size({'width':1280,'height':720});page.wait_for_timeout(500)
         check(clean_layout(), '1280×720 layout fits without scrolling')
-        check(page.locator('body').evaluate("el=>el.classList.contains('compact-controls')"), 'short projector viewport automatically uses compact controls')
+        check(page.locator('#controls-pane').is_visible(), 'COE sliders are grouped in the left pane')
         page.screenshot(path=str(RESULTS/'orbit-explorer-1280.png'))
+
+        # Match the instructor's annotated large screenshot. The visualizations
+        # should use most of the available height, with controls beside them.
+        page.set_viewport_size({'width':1718,'height':975});page.wait_for_timeout(250)
+        preset('teaching');edit('i',34);edit('raan',0);edit('arg',75);edit('nu',19.8)
+        page.locator('.element-card[data-key="i"] button').click()
+        geometry=page.evaluate('''()=>{
+          const box=s=>document.querySelector(s).getBoundingClientRect().toJSON();
+          return {pane:box('#controls-pane'),workspace:box('.workspace'),canvas:box('.orbit-canvas'),world:box('.ocean'),
+            headings:[...document.querySelectorAll('.panel-heading')].map(e=>e.getBoundingClientRect().height),
+            stats:[...document.querySelectorAll('.panel-stats')].map(e=>e.getBoundingClientRect().height)};
+        }''')
+        check(clean_layout(), 'annotated 1718×975 layout fits the screen')
+        check(geometry['pane']['right']<=geometry['workspace']['left'] and geometry['pane']['height']>700, 'COE pane sits beside the animations instead of below them')
+        check(geometry['canvas']['height']>=650, 'inertial drawing uses at least 650 px of height at the annotated viewport')
+        check(geometry['world']['width']>=540 and geometry['world']['height']>=270, 'ground map grows to at least 540×270 px at the annotated viewport')
+        check(max(geometry['headings'])<=62 and max(geometry['stats'])<=52, 'single-line headings and readouts leave the height for the animations')
+        page.screenshot(path=str(RESULTS/'sidebar-1718.png'))
+        page.locator('#theme').click();page.screenshot(path=str(RESULTS/'sidebar-projector-1718.png'));page.locator('#theme').click()
 
         # Reproduce the instructor's screenshot. Checking only page overflow
         # misses the original failure: both drawing areas fit but were tiny.
@@ -200,35 +224,40 @@ try:
         preset('teaching');page.locator('#theme').click()
         edit('e',0);edit('i',81);set_time(2814);edit('nu',166.9)
         page.locator('.element-card[data-key="i"] button').click()
+        if page.locator('#controls-toggle').get_attribute('aria-expanded')=='true':
+            page.locator('#controls-toggle').click()
         page.wait_for_timeout(300)
         dimensions=lambda: page.evaluate("({orbit:document.querySelector('.orbit-canvas').clientHeight,map:document.querySelector('#ground-map').clientHeight,world:document.querySelector('.ocean').getBoundingClientRect().toJSON()})")
         dims=dimensions()
         check(clean_layout(), '931×650 projector layout fits without scrolling')
-        check(dims['orbit']>=240, 'projector 3D drawing area remains at least 240 px tall')
+        check(dims['orbit']>=380, 'projector 3D drawing area remains at least 380 px tall')
         check(dims['world']['width']>=300 and dims['world']['height']>=150, 'projector world map remains large enough to read')
-        check(page.locator('.element-summary:visible').count()==6, 'compact controls retain all six element values')
-        check(page.locator('.element-card input[type="number"]:visible').count()==1, 'only selected element expands its numeric editor')
-        check(page.get_by_role('spinbutton',name='Inclination',exact=True).is_visible(), 'selected element is directly editable in compact layout')
+        check(page.locator('.element-summary:visible').count()==6, 'collapsed sidebar retains all six element values')
+        check(page.locator('.element-card input[type="number"]:visible').count()==0, 'collapsed pane gives its width back to the animations')
         report=callout_report()
         check(report['count']>=3 and report['outside'] and report['connected'], 'projector labels stay off the orbit and keep their leader lines')
         page.screenshot(path=str(RESULTS/'projector-after-931.png'))
 
+        snapshot_before=snapshot()
+        page.locator('.element-card[data-key="i"] button').click()
+        check(page.locator('#controls-toggle').get_attribute('aria-expanded')=='true', 'selecting an element reopens the left pane')
+        check(page.get_by_role('spinbutton',name='Inclination',exact=True).is_visible(), 'selected element is directly editable in the left pane')
+        check(page.locator('.element-card input[type="range"]').count()==6, 'all six sliders remain in the pane')
+        check(dimensions()['orbit']>=380, 'opening controls preserves animation height')
         page.locator('#explain-element').click()
         check('Inclination' in page.locator('#guide-element-title').inner_text(), 'Explain preserves the selected concept in a readable dialog')
-        check('latitude limit' in page.locator('#guide-element-text').inner_text(), 'compact layout keeps the full teaching explanation available')
+        check('latitude limit' in page.locator('#guide-element-text').inner_text(), 'sidebar layout keeps the full teaching explanation available')
         page.keyboard.press('Escape')
-        snapshot_before=snapshot()
         page.locator('#controls-toggle').click()
-        check(not page.locator('body').evaluate("el=>el.classList.contains('compact-controls')"), 'Full controls restores all element editors')
-        check(dimensions()['orbit']>=240, 'full controls never collapse either visualization on a short display')
-        page.locator('#controls-toggle').click()
-        check(clean_layout(), 'Larger views restores a complete projector layout')
+        check(page.locator('body').evaluate("el=>el.classList.contains('controls-collapsed')"), 'chevron collapses the controls back to the value rail')
+        check(clean_layout(), 'collapsed control pane keeps a complete projector layout')
         check(snapshot()['orbit']==snapshot_before['orbit'] and snapshot()['time']==snapshot_before['time'], 'changing control layout preserves orbit and simulation time')
 
         page.locator('details.overlay-menu summary').click()
         for overlay in ['axes','markers','vectors']:
             page.locator('#overlay-'+overlay).check()
         page.locator('.element-card[data-key="i"] button').click()
+        page.locator('#controls-toggle').click()
         page.wait_for_timeout(200)
         boxes=page.locator('#scene-labels .scene-label:visible').evaluate_all('(els)=>els.map(e=>e.getBoundingClientRect().toJSON())')
         overlaps=any(a['left']<b['right'] and a['right']>b['left'] and a['top']<b['bottom'] and a['bottom']>b['top'] for i,a in enumerate(boxes) for b in boxes[i+1:])

@@ -26,8 +26,9 @@ For GitHub Pages, publish the repository root from the intended branch using the
 - Inertial-view labels sit in outer callout columns, clear of the globe and orbit. Thin leader lines end at the actual feature and follow spacecraft motion and camera changes. On narrow views, AN/DN identify the ascending/descending nodes and S/C identifies the spacecraft.
 - Turn **Earth rotates** off to show how a nonrotating Earth changes the ground track. A persistent notice identifies this teaching model.
 - **Both / Orbit / Map** adjusts panel proportions. Drag the divider, or focus it and use arrow keys. **Both** restores the balanced split.
-- Short or smaller projector windows automatically use **compact controls**: all six element values stay visible, with one large editor for the selected element. **Larger views / Full controls** switches layouts manually. **Explain** opens the complete selected-element explanation.
-- Drawing areas retain a minimum height. If the full controls cannot fit, the page scrolls instead of squeezing the orbit or map into a narrow strip. The compact layout fits the 931×650 projector screenshot as well as the target display sizes.
+- All six COE sliders sit in a **left control pane**, with the selected-element explanation below them. The pane scrolls independently, leaving the orbit and map at full height. **Explain** opens a larger version of the explanation.
+- Use the chevron at the top of the pane to collapse it into a rail of element values. Select a value to reopen its slider. Smaller windows start with the pane collapsed so the animations keep their space.
+- Panel titles and numerical readouts use single lines. Playback stays beneath the views; the bottom slider dock and full-width explanation strip have been removed.
 - **Projector** selects a bright theme; fullscreen removes browser chrome. Target layouts are 1920×1080 and 1280×720. A narrower layout stacks the views.
 - **Guide** contains definitions, model assumptions, keyboard controls, and a discussion prompt for the current preset.
 
@@ -71,7 +72,7 @@ Source organization:
 | `src/scene.js` | Three.js globe, camera, geometry overlays and labels |
 | `src/app.js` | Shared simulation state, controls, SVG map and synchronization |
 | `src/shell.html`, `src/style.css` | Semantic interface and responsive themes |
-| `src/projector.css` | Protected drawing sizes and the compact classroom layout |
+| `src/projector.css` | Left control pane, compact readouts, and classroom layouts |
 | `src/assets/` | Embedded map, Earth image, and supplied emblem |
 | `scripts/build.mjs` | Bundles everything into the root `index.html` |
 

@@ -224,6 +224,22 @@ export class OrbitScene {
     if(view==='plane')dir=xyz(rotateOrbital([0,0,1],o));
     this.camera.up.set(0,1,0);if(view==='north')this.camera.up.set(0,0,-1);
     this.camera.position.copy(dir.normalize().multiplyScalar(d));this.controls.target.set(0,0,0);this.controls.update();
+    this.frameDrawing();
+  }
+  frameDrawing(){
+    if(this.error)return;
+    this.dirty=true;
+    // Frame the actual projected geometry, rather than leaving a sphere-sized
+    // margin around a tilted ellipse. Callout gutters remain protected.
+    const safeX=this.drawingWidth()/this.width;
+    for(let attempt=0;attempt<3;attempt++){
+      this.camera.updateMatrixWorld();let bound=0;
+      for(const point of [...this.orbitBounds,...this.geometryBounds,...this.angleBounds]){
+        const p=point.clone().project(this.camera);bound=Math.max(bound,Math.abs(p.x)/safeX,Math.abs(p.y));
+      }
+      if(!Number.isFinite(bound)||bound<=0||Math.abs(bound-.87)<.02)break;
+      this.camera.position.sub(this.controls.target).multiplyScalar(Math.max(.5,Math.min(1.6,bound/.87))).add(this.controls.target);this.controls.update();
+    }
   }
   setTheme(theme){
     this.theme=theme;
@@ -248,7 +264,7 @@ export class OrbitScene {
     return {left:Math.max(0,left-7),right:Math.min(this.width,rightEdge+7),top:Math.max(0,top-7),bottom:Math.min(this.height,bottom+7)};
   }
   layoutLabels(spacecraftPosition){
-    const aliases={'Ascending node':'AN','Descending node':'DN'};
+    const aliases={'Ascending node':'AN','Descending node':'DN','Spacecraft':'S/C'};
     if(this.width<430)Object.assign(aliases,{'Spacecraft':'S/C','Perigee':'Peri.','Apogee':'Apo.','Earth · focus':'Earth'});
     const labels=[{el:this.spacecraftLabel,pos:spacecraftPosition,text:'Spacecraft',scope:'spacecraft'},...this.labels];
     const priority=l=>l.scope==='angle'?100:l.scope==='spacecraft'?95:l.text==='h'?90:l.el.classList.contains('angle')?85:l.text.startsWith('+')?80:l.text.includes('node')?70:50;

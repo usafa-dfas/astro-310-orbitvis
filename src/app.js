@@ -4,9 +4,9 @@ import {MU,EARTH_RADIUS,SIDEREAL_DAY,EARTH_RATE,DEG,TAU,mod,clamp,norm,period,me
 
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const svgNS='http://www.w3.org/2000/svg';
-const compactQuery=matchMedia('(min-width: 801px) and (max-width: 1250px), (min-width: 801px) and (max-height: 820px)');
-let compactOverride=null,mapScale=1;
-document.body.classList.toggle('compact-controls',compactQuery.matches);
+const sidebarQuery=matchMedia('(max-width: 1100px)');
+let sidebarOverride=null,mapScale=1;
+document.body.classList.toggle('controls-collapsed',sidebarQuery.matches);
 const guideSelected=document.createElement('section');guideSelected.className='guide-selected';
 guideSelected.innerHTML='<h3 id="guide-element-title"></h3><p id="guide-element-text"></p><p id="guide-element-note"></p>';
 $('#guide-dialog .dialog-lead').after(guideSelected);
@@ -55,7 +55,13 @@ function makeControls(){
     const d=descriptor(key),card=document.createElement('div');card.className='element-card';card.dataset.key=key;
     card.style.setProperty('--element-column',index+1);
     card.innerHTML=`<button class="element-select" aria-pressed="false" title="Explain ${d.full}"><span class="element-symbol">${d.symbol}</span><span class="element-name">${d.name}</span><span class="element-summary" aria-hidden="true"></span></button><div class="element-value"><input type="number" inputmode="decimal" aria-label="${d.full}" min="${d.min}" max="${d.max}" step="${key==='a'?'0.01':key==='e'?'0.001':'0.1'}"><span class="unit">${d.unit}</span><span class="undefined-label" hidden>Undefined</span></div><input type="range" min="${d.min}" max="${d.max}" step="${d.step}" aria-label="Adjust ${d.full}"><div class="element-description">${d.full.toUpperCase()}</div>`;
-    card.querySelector('button').addEventListener('click',()=>selectElement(key));
+    card.querySelector('button').addEventListener('click',()=>{
+      selectElement(key);
+      if(document.body.classList.contains('controls-collapsed')){
+        sidebarOverride=false;updateControlMode();
+        requestAnimationFrame(()=>card.scrollIntoView({block:'nearest',inline:'nearest'}));
+      }
+    });
     const input=card.querySelector('input[type=number]'),range=card.querySelector('input[type=range]');
     range.addEventListener('pointerdown',()=>{pause('PAUSED · ADJUSTING ELEMENT');selectElement(key);});
     range.addEventListener('input',()=>editElement(key,Number(range.value)));
@@ -99,7 +105,9 @@ function togglePlay(){
   document.activeElement?.blur();state.playing=true;$('#play-label').textContent='Pause';$('#play .play-icon').innerHTML=pauseIcon;$('#play-state').textContent='PLAYING · KEPLERIAN MOTION';
 }
 function selectElement(key){
+  const changed=state.selected!==key;
   state.selected=key;updateControls();updateConcept();rebuildScene();trackDirty=true;
+  if(changed)scene.frameDrawing();
 }
 function editElement(key,value){
   pause('PAUSED · ELEMENT EDITED');state.selected=key;
@@ -272,15 +280,17 @@ document.addEventListener('pointerdown',e=>{for(const d of $$('details.overlay-m
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&state.playing)pause('PAUSED · TAB WAS HIDDEN');});
 
 function updateControlMode(){
-  const compact=innerWidth>800&&(compactOverride??compactQuery.matches);
-  document.body.classList.toggle('compact-controls',compact);
-  const button=$('#controls-toggle');button.textContent=compact?'Full controls':'Larger views';
-  button.setAttribute('aria-pressed',String(compact));
-  button.title=compact?'Show all element editors. The views retain their minimum size.':'Use compact controls to give the visualizations more room';
+  const collapsed=sidebarOverride??sidebarQuery.matches;
+  document.body.classList.toggle('controls-collapsed',collapsed);
+  const button=$('#controls-toggle');button.textContent=collapsed?'›':'‹';
+  button.setAttribute('aria-expanded',String(!collapsed));
+  button.setAttribute('aria-label',collapsed?'Show COE controls':'Hide COE controls');
+  button.title=collapsed?'Show COE controls':'Hide COE controls';
 }
 $('#controls-toggle').addEventListener('click',()=>{
-  compactOverride=!document.body.classList.contains('compact-controls');
-  updateControlMode();if(compactOverride)window.scrollTo(0,0);
+  document.activeElement?.blur();
+  sidebarOverride=!document.body.classList.contains('controls-collapsed');
+  updateControlMode();
 });
 window.addEventListener('resize',updateControlMode);
 
