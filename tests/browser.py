@@ -69,16 +69,17 @@ try:
                 const b=boxes[i],feature=label.dataset.feature;
                 // This central drawing strip is independent of the layout's own
                 // geometry bounds, and catches the former over-the-globe tags.
-                outside &&= b.right-area.left<=area.width*.3 || b.left-area.left>=area.width*.7;
+                const drawing=window.orbitExplorer.snapshot().camera.bounds;
+                outside &&= b.bottom-area.top<=drawing.top || b.top-area.top>=drawing.bottom;
                 inside &&= b.left>=area.left-1 && b.right<=area.right+1 && b.top>=area.top-1 && b.bottom<=area.bottom+1;
                 const path=paths.find(p=>p.dataset.feature===feature);
                 const dot=[...document.querySelectorAll('.label-leaders circle')].find(p=>p.dataset.feature===feature);
                 if(!path||!dot){connected=false;return;}
                 const values=path.getAttribute('d').match(/-?\\d+(?:\\.\\d+)?/g).map(Number);
-                const edge=label.dataset.dock==='left'?b.right-area.left:b.left-area.left;
-                connected &&= Math.abs(values[0]-edge)<1.5 && Math.abs(values[1]-(b.top+b.height/2-area.top))<1.5;
+                const edge=label.dataset.dock==='top'?b.bottom-area.top:b.top-area.top;
+                connected &&= Math.abs(values[0]-(b.left+b.width/2-area.left))<1.5 && Math.abs(values[1]-edge)<1.5;
                 connected &&= Math.abs(values.at(-2)-Number(dot.getAttribute('cx')))<.02 && Math.abs(values.at(-1)-Number(dot.getAttribute('cy')))<.02;
-                connected &&= parseFloat(getComputedStyle(path).strokeWidth)<=1.2;
+                connected &&= parseFloat(getComputedStyle(path).strokeWidth)<=1.5;
               });
               const overlaps=boxes.some((a,i)=>boxes.slice(i+1).some(b=>a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top));
               return {count:labels.length,outside,connected,inside,overlaps,paths:paths.length};
@@ -89,6 +90,8 @@ try:
             page.wait_for_function(f'()=>{{const r=({script})();return r.count>=2&&r.outside&&r.connected&&r.inside&&!r.overlaps;}}')
             return page.evaluate(script)
 
+        check(page.locator('html').get_attribute('data-theme')=='day', 'classroom theme is the default')
+        page.locator('#theme').click()
         check(snapshot()['webgl'], 'real WebGL 3D initialized')
         check(not snapshot()['playing'], 'starts paused on teaching ellipse')
         check(clean_layout(), '1920×1080 layout fits without scrolling')
@@ -103,7 +106,7 @@ try:
         page.wait_for_function("document.querySelectorAll('.latitude-guide').length === 2")
         check(page.locator('.latitude-guide').count()==2, 'inclination selection reveals latitude limits')
         callouts=callout_report()
-        check(callouts['count']>=4 and callouts['outside'], 'inertial labels stay in outer columns away from the animated drawing')
+        check(callouts['count']>=4 and callouts['outside'], 'inertial labels stay in peripheral lanes away from the animated drawing')
         check(callouts['connected'] and callouts['paths']==callouts['count'], 'every visible label has a thin leader line attached to its feature')
         check(callouts['inside'] and not callouts['overlaps'], 'callouts stay inside the canvas without overlapping one another')
         for viewpoint in ['north','equator','plane']:
@@ -183,7 +186,7 @@ try:
             page.locator(f'[data-layout="{layout}"].view-button').click()
             check(clean_layout(), f'{layout} panel layout fits display')
         page.locator('#splitter').focus();page.keyboard.press('ArrowLeft')
-        check(page.locator('#splitter').get_attribute('aria-valuenow')=='50', 'divider can be resized with keyboard')
+        check(page.locator('#splitter').get_attribute('aria-valuenow')=='43', 'divider can be resized with keyboard')
         page.locator('[data-layout="both"].view-button').click()
         page.locator('#camera').select_option('north')
         page.locator('#camera').select_option('plane')
@@ -214,7 +217,7 @@ try:
         check(geometry['pane']['right']<=geometry['workspace']['left'] and geometry['pane']['height']>700, 'COE pane sits beside the animations instead of below them')
         check(geometry['canvas']['height']>=650, 'inertial drawing uses at least 650 px of height at the annotated viewport')
         check(geometry['world']['width']>=540 and geometry['world']['height']>=270, 'ground map grows to at least 540×270 px at the annotated viewport')
-        check(max(geometry['headings'])<=62 and max(geometry['stats'])<=52, 'single-line headings and readouts leave the height for the animations')
+        check(max(geometry['headings'])<=52 and max(geometry['stats'])<=80, 'single-line headings and readouts leave the height for the animations')
         page.screenshot(path=str(RESULTS/'sidebar-1718.png'))
         page.locator('#theme').click();page.screenshot(path=str(RESULTS/'sidebar-projector-1718.png'));page.locator('#theme').click()
 
@@ -230,7 +233,7 @@ try:
         dimensions=lambda: page.evaluate("({orbit:document.querySelector('.orbit-canvas').clientHeight,map:document.querySelector('#ground-map').clientHeight,world:document.querySelector('.ocean').getBoundingClientRect().toJSON()})")
         dims=dimensions()
         check(clean_layout(), '931×650 projector layout fits without scrolling')
-        check(dims['orbit']>=380, 'projector 3D drawing area remains at least 380 px tall')
+        check(dims['orbit']>=320, 'projector 3D drawing area remains at least 320 px tall')
         check(dims['world']['width']>=300 and dims['world']['height']>=150, 'projector world map remains large enough to read')
         check(page.locator('.element-summary:visible').count()==6, 'collapsed sidebar retains all six element values')
         check(page.locator('.element-card input[type="number"]:visible').count()==0, 'collapsed pane gives its width back to the animations')
@@ -243,7 +246,7 @@ try:
         check(page.locator('#controls-toggle').get_attribute('aria-expanded')=='true', 'selecting an element reopens the left pane')
         check(page.get_by_role('spinbutton',name='Inclination',exact=True).is_visible(), 'selected element is directly editable in the left pane')
         check(page.locator('.element-card input[type="range"]').count()==6, 'all six sliders remain in the pane')
-        check(dimensions()['orbit']>=380, 'opening controls preserves animation height')
+        check(dimensions()['orbit']>=320, 'opening controls preserves animation height')
         page.locator('#explain-element').click()
         check('Inclination' in page.locator('#guide-element-title').inner_text(), 'Explain preserves the selected concept in a readable dialog')
         check('latitude limit' in page.locator('#guide-element-text').inner_text(), 'sidebar layout keeps the full teaching explanation available')

@@ -19,20 +19,30 @@ For GitHub Pages, publish the repository root from the intended branch using the
 ## In the classroom
 
 - Start paused on **Teaching ellipse**. Select an element to reveal its reference geometry, then drag the slider or enter a value.
-- **Play** advances real Keplerian motion at the selected time multiplier. **Space** toggles playback outside input controls. **Reset time** returns to the scenario's time zero; **Reset scenario** restores the selected preset and camera.
+- **Play** advances real Keplerian motion at the selected time multiplier. **Space** toggles playback outside input controls. **Restart** returns to the scenario's time zero; **Reset scenario** restores the selected preset and camera.
 - The time scrubber moves Earth and spacecraft together. Editing the location angle moves the spacecraft at the same instant. Other element edits preserve the displayed location angle and Earth orientation.
 - Drag the 3D view to rotate the camera; scroll or pinch to zoom. The camera menu offers oblique, north-pole, equatorial, and orbit-plane views.
 - **Geometry** reveals inertial axes, reference planes, nodes/apsides, R/V/h directions, and the sub-satellite projection. Selecting an element automatically reveals its relevant construction.
-- Inertial-view labels sit in outer callout columns, clear of the globe and orbit. Thin leader lines end at the actual feature and follow spacecraft motion and camera changes. On narrow views, AN/DN identify the ascending/descending nodes and S/C identifies the spacecraft.
+- Inertial-view labels sit above and below the drawing, clear of the globe and orbit. Thin leader lines end at the actual feature and follow spacecraft motion and camera changes. Peripheral lanes sit just outside the projected drawing; stable label slots leave the middle available for a larger orbit. On narrow views, AN/DN identify the ascending/descending nodes and S/C identifies the spacecraft.
 - Turn **Earth rotates** off to show how a nonrotating Earth changes the ground track. A persistent notice identifies this teaching model.
 - **Both / Orbit / Map** adjusts panel proportions. Drag the divider, or focus it and use arrow keys. **Both** restores the balanced split.
 - All six COE sliders sit in a **left control pane**, with the selected-element explanation below them. The pane scrolls independently, leaving the orbit and map at full height. **Explain** opens a larger version of the explanation.
 - Use the chevron at the top of the pane to collapse it into a rail of element values. Select a value to reopen its slider. Smaller windows start with the pane collapsed so the animations keep their space.
 - Panel titles and numerical readouts use single lines. Playback stays beneath the views; the bottom slider dock and full-width explanation strip have been removed.
-- **Projector** selects a bright theme; fullscreen removes browser chrome. Target layouts are 1920×1080 and 1280×720. A narrower layout stacks the views.
+- The light **Classroom** theme is the default; **Dark** switches to the dark theme. Fullscreen removes browser chrome. Target layouts are 1920×1080 and 1280×720. A narrower layout stacks the views.
 - **Guide** contains definitions, model assumptions, keyboard controls, and a discussion prompt for the current preset.
 
 The circular/equatorial presets use the course's alternate angles: **u**, **Π**, and **ℓ**. Undefined classical angles are shown explicitly, not as meaningful zeros.
+
+## Classroom presentation controls
+
+- **Fit view** frames the projected orbit, Earth, and visible geometry with modest margins. Selecting a new element or camera view fits its construction; editing an element keeps the camera scale stable until you fit again. Earth and orbit retain their physical size ratio.
+- **Both** uses a 45% orbit / 55% map split. The divider remains adjustable; **Orbit** and **Map** emphasize their view at 72% while retaining the companion. The world map always preserves its 2:1 equirectangular proportions.
+- Teal identifies orbit/track, orange identifies the matching spacecraft and ground position, purple emphasizes the selected element, and slate indicates reference geometry. Solid/dashed tracks and ring markers reinforce the colors.
+- **Geometry** offers Essential, Selected element, and All geometry, plus individual switches. Selecting inclination emphasizes the plane, angle, and latitude limits; other elements reveal their own constructions.
+- The left pane keeps a short teaching sentence and **Explain** above the scrolling six controls. The chevron collapses it to a rail of values; selecting a value reopens its editor.
+- **Play/Pause**, the elapsed time, and the scrubber share one clock. Choose **1 orbit / 30, 60, or 120 s**, or a fixed multiplier. The actual multiplier stays visible and teaching pace follows the period when size changes.
+- **Restart** returns to time zero and pauses. **Fit view** only changes the camera. **Reset scenario** in the header restores the preset, time, and camera.
 
 ## Physics and conventions
 
@@ -87,9 +97,12 @@ The browser suite requires Python's `playwright` package and Chromium (or Playwr
 ```sh
 npm run build
 npm run test:browser
+npm run test:projector
 ```
 
 Set `CHROMIUM_PATH` if needed. The suite starts and stops its own local HTTP server, blocks external requests, exercises the actual interface, checks the target layouts, loads the built document with the browser offline, and tests the WebGL fallback. Results and screenshots go to ignored `test-results/`.
+
+The projector suite covers both themes at 1920×1080, 1280×720, 1024×768, and 931×650, with circular, polar, eccentric, and geostationary presets. It checks actual map proportions, label clipping and collisions, fixed marker size, explicit camera fitting, stable edit scale, and teaching speeds. Normal and reduced-contrast screenshots plus dimension reports are written to `test-results/projector/`. Reduced-contrast captures are an initial washout check; classroom projector feedback is still needed.
 
 Chromium was exercised in this development environment using software WebGL. Projector hardware, interactive frame rate on classroom laptops, Firefox, and Safari still need direct classroom/browser checks.
 

@@ -8,12 +8,11 @@ import {EARTH_RADIUS,DEG,TAU,stateAtTrue,rotateOrbital,isCircular,isEquatorial,n
 
 const xyz = a => new THREE.Vector3(a[0],a[2],-a[1]);
 const eci = a => xyz(a).divideScalar(EARTH_RADIUS);
-const color={orbit:0x77e2e6,orange:0xffbd75,reference:0x637f9a,axis:0x9eb5cb,node:0xd1dbef};
+const color={orbit:0x73e1dc,selected:0xd4b3ff,orange:0xffbd75,reference:0x637f9a,axis:0x9eb5cb,node:0xd1dbef};
 
 export class OrbitScene {
   constructor(container) {
     this.container=container;this.labelsEl=document.querySelector('#scene-labels');this.labels=[];
-    this.labelSizes=new WeakMap();
     this.calloutSides=new Map();this.orbitBounds=[];this.geometryBounds=[];this.angleBounds=[];
     this.labelLeaders=document.createElementNS('http://www.w3.org/2000/svg','svg');
     this.labelLeaders.classList.add('label-leaders');this.labelLeaders.setAttribute('aria-hidden','true');this.labelsEl.append(this.labelLeaders);
@@ -29,7 +28,7 @@ export class OrbitScene {
     this.camera=new THREE.PerspectiveCamera(39,1,.03,2000);this.camera.up.set(0,1,0);
     this.controls=new OrbitControls(this.camera,this.renderer.domElement);
     this.controls.enableDamping=true;this.controls.dampingFactor=.12;this.controls.enablePan=false;
-    this.controls.minDistance=1.65;this.controls.maxDistance=70;
+    this.controls.minDistance=1.65;this.controls.maxDistance=250;
     this.controls.addEventListener('start',()=>this.container.dispatchEvent(new Event('camera-interaction')));
     this.controls.addEventListener('change',()=>this.dirty=true);
     this.scene.add(new THREE.AmbientLight(0xbdd8f3,1.05));
@@ -51,49 +50,47 @@ export class OrbitScene {
     this.stars=new THREE.Points(starGeom,new THREE.PointsMaterial({color:0xa4bfd4,size:.065,transparent:true,opacity:.36,sizeAttenuation:true,depthWrite:false}));this.scene.add(this.stars);
     this.orbitGroup=new THREE.Group();this.referenceGroup=new THREE.Group();this.angleGroup=new THREE.Group();
     this.scene.add(this.orbitGroup,this.referenceGroup,this.angleGroup);
-    this.satellite=new THREE.Group();
-    const body=new THREE.Mesh(new THREE.BoxGeometry(.55,.55,.7),new THREE.MeshStandardMaterial({color:0xffd39c,metalness:.65,roughness:.3}));
-    this.satellite.add(body);
-    const solar=new THREE.MeshStandardMaterial({color:0x3981b5,metalness:.5,roughness:.35,side:THREE.DoubleSide});
-    for(const side of [-1,1]){
-      const panel=new THREE.Mesh(new THREE.BoxGeometry(1.15,.05,.68),solar);panel.position.x=side*.95;this.satellite.add(panel);
-      const seams=new THREE.LineSegments(new THREE.EdgesGeometry(panel.geometry),new THREE.LineBasicMaterial({color:0xb1daf0,transparent:true,opacity:.8}));seams.position.copy(panel.position);this.satellite.add(seams);
-    }
-    const beacon=new THREE.Mesh(new THREE.SphereGeometry(.2,12,12),new THREE.MeshBasicMaterial({color:color.orange}));body.add(beacon);
-    this.scene.add(this.satellite);
-    const pinCanvas=document.createElement('canvas');pinCanvas.width=pinCanvas.height=128;
-    const pin=pinCanvas.getContext('2d'),glow=pin.createRadialGradient(64,64,3,64,64,62);
-    glow.addColorStop(0,'#ffbd7588');glow.addColorStop(1,'#ffbd7500');pin.fillStyle=glow;pin.fillRect(0,0,128,128);
-    pin.strokeStyle='#ffbd75';pin.lineWidth=3;pin.beginPath();pin.arc(64,64,20,0,TAU);pin.stroke();
-    pin.fillStyle='#ffe2bb';pin.beginPath();pin.arc(64,64,5,0,TAU);pin.fill();
-    this.satPin=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(pinCanvas),transparent:true,depthWrite:false}));this.scene.add(this.satPin);
+    // A crisp orange ring matches the map marker; its scale is set in pixels.
+    const pinCanvas=document.createElement('canvas');pinCanvas.width=pinCanvas.height=64;
+    const pin=pinCanvas.getContext('2d');
+    pin.fillStyle='#ffffff';pin.beginPath();pin.arc(32,32,27,0,TAU);pin.fill();
+    pin.strokeStyle='#ae4900';pin.lineWidth=8;pin.stroke();
+    pin.fillStyle='#ae4900';pin.beginPath();pin.arc(32,32,12,0,TAU);pin.fill();
+    this.pinCanvas=pinCanvas;
+    this.satPin=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(pinCanvas),depthWrite:false,depthTest:false}));this.scene.add(this.satPin);
     this.spacecraftLabel=document.createElement('span');this.spacecraftLabel.className='scene-label highlight';this.spacecraftLabel.textContent='Spacecraft';this.labelsEl.append(this.spacecraftLabel);
     this.subpoint=new THREE.Mesh(new THREE.SphereGeometry(.022,16,16),new THREE.MeshBasicMaterial({color:color.orange}));this.scene.add(this.subpoint);
     this.projection=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3(0,1,0)]),new THREE.LineDashedMaterial({color:color.orange,dashSize:.07,gapSize:.06,transparent:true,opacity:.45}));this.scene.add(this.projection);
-    this.velocityArrow=new THREE.ArrowHelper(new THREE.Vector3(1,0,0),new THREE.Vector3(),1,color.orange,.12,.07);this.scene.add(this.velocityArrow);
-    this.positionArrow=new THREE.ArrowHelper(new THREE.Vector3(1,0,0),new THREE.Vector3(),1,color.orbit,.12,.07);this.scene.add(this.positionArrow);
+    this.velocityArrow=this.arrow(color.selected);this.scene.add(this.velocityArrow);
+    this.positionArrow=this.arrow(color.selected);this.scene.add(this.positionArrow);
     this.resizeObserver=new ResizeObserver(()=>this.resize());this.resizeObserver.observe(container);
     this.resize();
   }
   resize(){
     if(this.error)return;
     this.dirty=true;
-    const oldFit=this.fitAspect();
+
     this.width=Math.max(1,this.container.clientWidth);this.height=Math.max(1,this.container.clientHeight);
     this.camera.aspect=this.width/this.height;
-    this.camera.position.sub(this.controls.target).multiplyScalar(oldFit/this.fitAspect()).add(this.controls.target);
+
     this.camera.updateProjectionMatrix();this.renderer.setSize(this.width,this.height);
-    this.labelSizes=new WeakMap();
+    if(this.o)this.fitView();
     this.scene.traverse(o=>{if(o.material?.isLineMaterial)o.material.resolution.set(this.width,this.height);});
   }
-  fitAspect(){
-    // Reserve horizontal margins for callouts without changing the globe/orbit
-    // distance scale. Wide views still fit to their height, as before.
-    return Math.min(1,this.drawingWidth()/this.height);
+  unitsPerPixel(position){
+    const depth=-position.clone().applyMatrix4(this.camera.matrixWorldInverse).z;
+    return 2*Math.max(.01,depth)*Math.tan(this.camera.fov*DEG/2)/this.height;
   }
-  drawingWidth(){
-    const gutter=Math.min(124,Math.max(68,this.width*.17));
-    return Math.max(this.width*.25,this.width-2*gutter);
+  arrow(tint){
+    const arrow=new THREE.ArrowHelper(new THREE.Vector3(0,1,0),new THREE.Vector3(),1,tint);
+    arrow.line.visible=false;
+    arrow.shaft=this.line([new THREE.Vector3(),new THREE.Vector3(0,1,0)],arrow,{color:tint,width:3.5});
+    return arrow;
+  }
+  sizeArrow(arrow,length){
+    const pixel=this.unitsPerPixel(arrow.position),head=Math.min(length*.25,11*pixel);
+    arrow.setLength(length,head,8*pixel);arrow.shaft.scale.y=Math.max(.001,length-head*.6);
+    arrow.shaft.material.color.set(color.selected);arrow.cone.material.color.set(color.selected);
   }
   clear(group){
     for(const child of [...group.children]){child.traverse(c=>{c.geometry?.dispose();if(c.material)for(const m of (Array.isArray(c.material)?c.material:[c.material]))m.dispose();});group.remove(child);}
@@ -119,27 +116,27 @@ export class OrbitScene {
     this.clear(this.orbitGroup);this.clear(this.referenceGroup);this.clearLabels('reference');
     const points=Array.from({length:361},(_,j)=>eci(stateAtTrue(o,j).position));
     this.orbitBounds=points.filter((_,j)=>j%4===0);
-    this.line(points,this.orbitGroup,{width:7,opacity:.08});
-    this.orbitLine=this.line(points,this.orbitGroup,{width:2.8});
-    const a=o.a/EARTH_RADIUS,extent=a*(1+o.e),r=Math.max(1.28,a*.73);
+    this.orbitLine=this.line(points,this.orbitGroup,{width:3.5,color:selected==='e'?color.selected:color.orbit});
+    const a=o.a/EARTH_RADIUS,r=Math.max(1.28,a*.73);
     const eq=isEquatorial(o),circ=isCircular(o);
     const planes=options.planes||selected==='i';
     if(planes){
       const planeRadius=Math.max(1.35,a*1.04);
       const disc=new THREE.Mesh(new THREE.CircleGeometry(planeRadius,100),new THREE.MeshBasicMaterial({color:0x44769a,transparent:true,opacity:this.theme==='night'?.055:.09,side:THREE.DoubleSide,depthWrite:false}));disc.rotation.x=-Math.PI/2;this.referenceGroup.add(disc);
-      this.line(this.circlePoints(planeRadius),this.referenceGroup,{color:color.reference,width:1,opacity:.4});
+      this.line(this.circlePoints(planeRadius),this.referenceGroup,{color:color.reference,width:2,opacity:.65});
       if(selected==='i'||selected==='arg'){
         const geom=new THREE.BufferGeometry();const verts=[0,0,0];
         for(let j=0;j<=100;j++){const v=xyz(rotateOrbital([planeRadius*Math.cos(j/100*TAU),planeRadius*Math.sin(j/100*TAU),0],o));verts.push(...v.toArray());}
         const indices=[];for(let j=1;j<=100;j++)indices.push(0,j,j+1);
         geom.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));geom.setIndex(indices);
         for(let j=3;j<verts.length;j+=15)this.geometryBounds.push(new THREE.Vector3(...verts.slice(j,j+3)));
-        this.referenceGroup.add(new THREE.Mesh(geom,new THREE.MeshBasicMaterial({color:color.orbit,transparent:true,opacity:.06,side:THREE.DoubleSide,depthWrite:false})));
+        this.referenceGroup.add(new THREE.Mesh(geom,new THREE.MeshBasicMaterial({color:color.selected,transparent:true,opacity:.15,side:THREE.DoubleSide,depthWrite:false})));
+        this.line(this.circlePoints(planeRadius,v=>xyz(rotateOrbital(v,o))),this.referenceGroup,{color:color.selected,width:3});
       }
     }
     const axes=options.axes||['i','raan'].includes(selected)||(eq&&['arg','nu'].includes(selected));
     if(axes){for(const [vec,name] of [[[1,0,0],'+I'],[[0,1,0],'+J'],[[0,0,1],'+K']]){
-      const v=xyz(vec).multiplyScalar(Math.max(1.6,a*.9));this.line([v.clone().negate(),v],this.referenceGroup,{color:color.axis,width:1.1,opacity:.48,dashed:true});this.label(name,v.clone());
+      const v=xyz(vec).multiplyScalar(Math.max(1.6,a*.9));this.line([v.clone().negate(),v],this.referenceGroup,{color:color.axis,width:2,opacity:.65,dashed:true});this.label(name,v.clone());
     }}
     if(!eq&&(options.markers||['raan','arg','nu'].includes(selected))){
       const nodes=nodeStates(o);nodes.forEach((s,j)=>{
@@ -150,41 +147,33 @@ export class OrbitScene {
     }
     if(!circ&&(options.markers||['a','e','arg','nu'].includes(selected))){
       for(const [nu,text] of [[0,'Perigee'],[180,'Apogee']]){
-        const p=eci(stateAtTrue(o,nu).position);const m=new THREE.Mesh(new THREE.SphereGeometry(.033,12,12),new THREE.MeshBasicMaterial({color:color.orange}));m.position.copy(p);this.referenceGroup.add(m);this.label(text,p.clone(),'highlight');
+        const p=eci(stateAtTrue(o,nu).position);const m=new THREE.Mesh(new THREE.SphereGeometry(.033,12,12),new THREE.MeshBasicMaterial({color:color.orange}));m.position.copy(p);this.referenceGroup.add(m);this.label(text,p.clone(),['e','arg'].includes(selected)?'angle':'', 'reference',true);
       }
     }
     if(selected==='a'){
       const center=xyz(rotateOrbital([-a*o.e,0,0],o));const end=eci(stateAtTrue(o,0).position);
       const offset=xyz(rotateOrbital([0,-a*Math.sqrt(1-o.e*o.e)*1.22,0],o));
       const left=center.clone().add(offset),right=end.clone().add(offset);
-      this.line([left,right],this.referenceGroup,{color:color.orange,width:1.7,opacity:.85});
+      this.line([left,right],this.referenceGroup,{color:color.selected,width:3.5});
       this.line([center,left],this.referenceGroup,{color:color.orange,width:1,opacity:.3,dashed:true});
       this.line([end,right],this.referenceGroup,{color:color.orange,width:1,opacity:.3,dashed:true});
-      this.label('a',left.clone().lerp(right,.5),'angle');
+      this.label('Size, a',left.clone().lerp(right,.5),'angle','reference',true);
       if(!circ)this.label('Earth · focus',new THREE.Vector3(),'','reference',true);
     }
     if(selected==='e'&&!circ){
-      const v=xyz(rotateOrbital([1.45,0,0],o));this.line([new THREE.Vector3(),v],this.referenceGroup,{color:color.orange,width:2,opacity:.8});
+      const v=xyz(rotateOrbital([1.45,0,0],o));this.line([new THREE.Vector3(),v],this.referenceGroup,{color:color.selected,width:3.5});
     }
     if(options.vectors||selected==='i'){
-      const h=xyz(rotateOrbital([0,0,1.8],o));this.referenceGroup.add(new THREE.ArrowHelper(h.clone().normalize(),new THREE.Vector3(),h.length(),color.orbit,.14,.08));this.label('h',h,'angle');
+      const h=xyz(rotateOrbital([0,0,1.8],o));const arrow=this.arrow(color.selected);arrow.setDirection(h.clone().normalize());arrow.userData.length=h.length();this.referenceGroup.add(arrow);this.geometryBounds.push(h);this.label('h',h,'angle');
     }
+    if(options.vectors)for(const p of this.orbitBounds)for(const axis of [new THREE.Vector3(.7,0,0),new THREE.Vector3(0,.7,0),new THREE.Vector3(0,0,.7)])this.geometryBounds.push(p.clone().add(axis),p.clone().sub(axis));
     this.projection.visible=this.subpoint.visible=options.projection;
     this.positionArrow.visible=options.vectors||selected==='nu';this.velocityArrow.visible=options.vectors;
     this.updateAngle(o.nu);
     if(fit)this.setView(this.view,true);
-    else {
-      // Keep a stable scale until the actual projected orbit approaches an edge.
-      // Expanding only as needed makes a's size change visible without clipping.
-      for(let attempt=0;attempt<3;attempt++){
-        this.controls.update();this.camera.updateMatrixWorld();let bound=0;
-        const safeX=this.drawingWidth()/this.width;
-        for(const point of [...this.orbitBounds,...this.geometryBounds,...this.angleBounds]){const p=point.clone().project(this.camera);bound=Math.max(bound,Math.abs(p.x)/safeX,Math.abs(p.y));}
-        if(bound<.94)break;
-        this.camera.position.sub(this.controls.target).multiplyScalar(bound/.87).add(this.controls.target);
-      }
-    }
+    // Element edits deliberately retain camera position and target. Fit view is explicit.
   }
+
   updateAngle(nu){
     if(this.error||!this.o)return;
     this.dirty=true;
@@ -204,56 +193,65 @@ export class OrbitScene {
       else {const start=circ?-o.arg:0,span=circ?angles.u:nu;points=Array.from({length:81},(_,j)=>xyz(rotateOrbital([r*Math.cos((start+span*j/80)*DEG),r*Math.sin((start+span*j/80)*DEG),0],o)));symbol=circ?'u':'ν';}
     }
     if(points.length){
-      this.line(points,this.angleGroup,{color:color.orbit,width:3});
-      this.line([new THREE.Vector3(),points[0]],this.angleGroup,{color:color.orbit,width:1.1,opacity:.4,dashed:true});
-      this.line([new THREE.Vector3(),points.at(-1)],this.angleGroup,{color:color.orbit,width:1.1,opacity:.4,dashed:true});
+      this.line(points,this.angleGroup,{color:color.selected,width:3.5});
+      this.line([new THREE.Vector3(),points[0]],this.angleGroup,{color:color.selected,width:2,opacity:.65,dashed:true});
+      this.line([new THREE.Vector3(),points.at(-1)],this.angleGroup,{color:color.selected,width:2,opacity:.65,dashed:true});
       this.angleBounds=points.filter((_,j)=>j%4===0);
-      mid=points[Math.floor(points.length/2)].clone();this.label(symbol,mid,'angle','angle');
+      mid=points[Math.floor(points.length/2)].clone();this.label(({i:'Inclination, i','Ω':'RAAN, Ω','ω':'Perigee angle, ω','ν':'Location, ν','u':'Latitude angle, u','Π':'Perigee longitude, Π','ℓ':'Longitude, ℓ'})[symbol]||symbol,mid,'angle','angle',true);
     }
   }
   setView(view,fit=true){
     if(this.error)return;
     this.dirty=true;
     this.view=view;const o=this.o||{a:12000,e:.25,i:45,raan:30,arg:45};
-    const extent=Math.max(1.2,o.a/EARTH_RADIUS*(1+o.e),...this.geometryBounds.map(p=>p.length()),...this.angleBounds.map(p=>p.length()));
-    // Fit to both dimensions. The globe and orbital ellipse retain the same scale.
-    const d=extent/Math.sin(19.5*DEG)/this.fitAspect()*1.04;
     let dir=new THREE.Vector3(5,3.4,5.8);
     if(view==='north')dir.set(.001,1,.001);
     if(view==='equator')dir.set(1,.001,1.5);
     if(view==='plane')dir=xyz(rotateOrbital([0,0,1],o));
     this.camera.up.set(0,1,0);if(view==='north')this.camera.up.set(0,0,-1);
-    this.camera.position.copy(dir.normalize().multiplyScalar(d));this.controls.target.set(0,0,0);this.controls.update();
-    this.frameDrawing();
+    this.controls.target.set(0,0,0);this.camera.position.copy(dir.normalize().multiplyScalar(20));this.controls.update();this.fitView();
   }
-  frameDrawing(){
-    if(this.error)return;
-    this.dirty=true;
-    // Frame the actual projected geometry, rather than leaving a sphere-sized
-    // margin around a tilted ellipse. Callout gutters remain protected.
-    const safeX=this.drawingWidth()/this.width;
-    for(let attempt=0;attempt<3;attempt++){
-      this.camera.updateMatrixWorld();let bound=0;
-      for(const point of [...this.orbitBounds,...this.geometryBounds,...this.angleBounds]){
-        const p=point.clone().project(this.camera);bound=Math.max(bound,Math.abs(p.x)/safeX,Math.abs(p.y));
-      }
-      if(!Number.isFinite(bound)||bound<=0||Math.abs(bound-.87)<.02)break;
-      this.camera.position.sub(this.controls.target).multiplyScalar(Math.max(.5,Math.min(1.6,bound/.87))).add(this.controls.target);this.controls.update();
-    }
+  fitPoints(){
+    const points=[...this.orbitBounds,...this.geometryBounds,...this.angleBounds];
+    // Sample the sphere in 3D so no orientation can crop the Earth silhouette.
+    for(let lat=-90;lat<=90;lat+=15)for(let lon=0;lon<360;lon+=15)
+      points.push(new THREE.Vector3(Math.cos(lat*DEG)*Math.cos(lon*DEG),Math.sin(lat*DEG),Math.cos(lat*DEG)*Math.sin(lon*DEG)));
+    return points;
+  }
+  fitView(){
+    if(this.error||!this.o)return;
+    this.controls.update();this.camera.updateMatrixWorld();
+    const direction=this.camera.position.clone().sub(this.controls.target).normalize();
+    const right=new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld,0),up=new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld,1);
+    const points=this.fitPoints(),bounds={x:[Infinity,-Infinity],y:[Infinity,-Infinity]};
+    for(const p of points){for(const [key,axis] of [['x',right],['y',up]]){const v=p.dot(axis);bounds[key][0]=Math.min(bounds[key][0],v);bounds[key][1]=Math.max(bounds[key][1],v);}}
+    const target=right.clone().multiplyScalar((bounds.x[0]+bounds.x[1])/2).addScaledVector(up,(bounds.y[0]+bounds.y[1])/2);
+    const tangent=Math.tan(this.camera.fov*DEG/2),safeX=.88,safeY=Math.max(.35,1-112/this.height);
+    let distance=2;
+    for(const point of points){const p=point.clone().sub(target),depth=p.dot(direction);distance=Math.max(distance,depth+Math.abs(p.dot(right))/(tangent*this.camera.aspect*safeX),depth+Math.abs(p.dot(up))/(tangent*safeY));}
+    this.controls.target.copy(target);this.camera.position.copy(target).addScaledVector(direction,distance*1.04);
+    this.controls.update();this.camera.updateMatrixWorld();this.calloutSides.clear();this.dirty=true;
+  }
+  diagnostics(){
+    if(this.error)return null;
+    const points=this.orbitBounds.map(p=>p.clone().project(this.camera));
+    return {position:this.camera.position.toArray(),target:this.controls.target.toArray(),orbitWidth:(Math.max(...points.map(p=>p.x))-Math.min(...points.map(p=>p.x)))*this.width/2,orbitHeight:(Math.max(...points.map(p=>p.y))-Math.min(...points.map(p=>p.y)))*this.height/2,width:this.width,height:this.height,bounds:this.projectedGeometryBounds()};
   }
   setTheme(theme){
     this.theme=theme;
-    Object.assign(color,theme==='day'?{orbit:0x087986,orange:0xab560c,reference:0x648395,axis:0x496678,node:0x43587b}:{orbit:0x77e2e6,orange:0xffbd75,reference:0x637f9a,axis:0x9eb5cb,node:0xd1dbef});
-    if(this.error)return;this.dirty=true;this.stars.visible=theme==='night';
+    Object.assign(color,theme==='day'?{orbit:0x006c70,selected:0x7132a8,orange:0xae4900,reference:0x648395,axis:0x496678,node:0x43587b}:{orbit:0x73e1dc,selected:0xd4b3ff,orange:0xffbd75,reference:0x637f9a,axis:0x9eb5cb,node:0xd1dbef});
+    if(this.error)return;this.dirty=true;this.stars.visible=false;this.subpoint.material.color.set(color.orange);
+    const pin=this.pinCanvas.getContext('2d');pin.clearRect(0,0,64,64);
+    pin.fillStyle=theme==='day'?'#fafbfc':'#0d1828';pin.beginPath();pin.arc(32,32,27,0,TAU);pin.fill();
+    pin.strokeStyle=theme==='day'?'#ae4900':'#ffbd75';pin.lineWidth=8;pin.stroke();pin.fillStyle=pin.strokeStyle;pin.beginPath();pin.arc(32,32,12,0,TAU);pin.fill();this.satPin.material.map.needsUpdate=true;
     this.positionArrow.setColor(color.orbit);this.velocityArrow.setColor(color.orange);this.projection.material.color.set(color.orange);
   }
   projectedGeometryBounds(spacecraftPosition){
-    const points=[...this.orbitBounds,...this.geometryBounds,...this.angleBounds,...this.labels.map(l=>l.pos),spacecraftPosition];
+    const points=[...this.orbitBounds,...this.geometryBounds,...this.angleBounds];
     const right=new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld,0);
     const up=new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld,1);
     // Include the globe silhouette, even in an edge-on equatorial orbit.
     for(let j=0;j<16;j++)points.push(right.clone().multiplyScalar(1.08*Math.cos(j/16*TAU)).addScaledVector(up,1.08*Math.sin(j/16*TAU)));
-    if(this.velocityArrow.visible)points.push(this.velocityArrow.position.clone().addScaledVector(new THREE.Vector3(0,1,0).applyQuaternion(this.velocityArrow.quaternion),.7));
     let left=this.width/2,rightEdge=left,top=this.height/2,bottom=top;
     for(const point of points){
       const p=point.clone().project(this.camera);
@@ -264,57 +262,36 @@ export class OrbitScene {
     return {left:Math.max(0,left-7),right:Math.min(this.width,rightEdge+7),top:Math.max(0,top-7),bottom:Math.min(this.height,bottom+7)};
   }
   layoutLabels(spacecraftPosition){
-    const aliases={'Ascending node':'AN','Descending node':'DN','Spacecraft':'S/C'};
-    if(this.width<430)Object.assign(aliases,{'Spacecraft':'S/C','Perigee':'Peri.','Apogee':'Apo.','Earth · focus':'Earth'});
-    const labels=[{el:this.spacecraftLabel,pos:spacecraftPosition,text:'Spacecraft',scope:'spacecraft'},...this.labels];
-    const priority=l=>l.scope==='angle'?100:l.scope==='spacecraft'?95:l.text==='h'?90:l.el.classList.contains('angle')?85:l.text.startsWith('+')?80:l.text.includes('node')?70:50;
-    labels.sort((a,b)=>priority(b)-priority(a));
-    const bounds=this.projectedGeometryBounds(spacecraftPosition),columns={left:[],right:[]},leaders=[];
-    const pad=12,gap=8,clearance=18,center=(bounds.left+bounds.right)/2;
-    const available={left:bounds.left-clearance-pad,right:this.width-pad-bounds.right-clearance};
-    const hint=this.container.querySelector('.scene-hint');
-    const lowerLimit=this.height-(hint&&getComputedStyle(hint).display!=='none'?27:8);
-    for(const l of labels){
-      l.el.dataset.feature=l.text;
-      const text=this.width<620?(aliases[l.text]||l.text):l.text;
-      if(l.el.textContent!==text){l.el.textContent=text;this.labelSizes.delete(l.el);}
-      const p=l.pos.clone().project(this.camera),ray=l.pos.clone().sub(this.camera.position),distance=ray.length(),rdir=ray.clone().normalize();
-      const along=-this.camera.position.dot(rdir),closest=this.camera.position.clone().addScaledVector(rdir,along);
-      const occluded=along>0&&along<distance&&closest.length()<.98;
-      if(p.z>1||p.z< -1||Math.abs(p.x)>1||Math.abs(p.y)>1||(occluded&&!l.alwaysVisible)){l.el.style.display='none';continue;}
-      l.el.style.display='';
-      let size=this.labelSizes.get(l.el);
-      if(!size){size={w:l.el.offsetWidth,h:l.el.offsetHeight};this.labelSizes.set(l.el,size);}
-      const {w,h}=size,x=(p.x*.5+.5)*this.width,y=(-p.y*.5+.5)*this.height,key=l.scope+':'+l.text;
-      const previous=this.calloutSides.get(key);
-      let side=previous?(x<center-24?'left':x>center+24?'right':previous):(x<center?'left':'right');
-      if(w>available[side])side=side==='left'?'right':'left';
-      if(w>available[side]||h>lowerLimit-8){l.el.style.display='none';continue;}
-      this.calloutSides.set(key,side);
-      columns[side].push({...l,w,h,x,y,rank:priority(l)});
+    const all=[{el:this.spacecraftLabel,pos:spacecraftPosition,text:'Spacecraft',scope:'spacecraft',alwaysVisible:true},...this.labels];
+    const rank=l=>l.scope==='angle'?100:l.scope==='spacecraft'?95:l.el.classList.contains('angle')?90:l.text==='Perigee'||l.text==='Apogee'?80:50;
+    all.sort((a,b)=>rank(b)-rank(a));
+    const rows={top:[],bottom:[]},leaders=[],gap=8,pad=8,bounds=this.projectedGeometryBounds(spacecraftPosition);
+    const aliases={'Ascending node':'AN','Descending node':'DN','Earth · focus':'Earth focus','Perigee longitude, Π':'Perigee, Π','Latitude angle, u':'Location, u'};
+    for(const l of all){
+      const p=l.pos.clone().project(this.camera);l.el.dataset.feature=l.text;
+      l.el.textContent=this.width<500?(aliases[l.text]||l.text):l.text;
+      if(p.z>1||p.z< -1||Math.abs(p.x)>1||Math.abs(p.y)>1){l.el.style.display='none';continue;}
+      l.el.style.display='';const w=l.el.offsetWidth,h=l.el.offsetHeight;
+      const key=l.scope+':'+l.text;
+      let side=this.calloutSides.get(key)||(l.scope==='spacecraft'?'bottom':p.y>0?'top':'bottom');
+      const used=side=>rows[side].reduce((n,item)=>n+item.w+gap,0);
+      if(used(side)+w>this.width-2*pad)side=side==='top'?'bottom':'top';
+      if(used(side)+w>this.width-2*pad){l.el.style.display='none';continue;}
+      this.calloutSides.set(key,side);rows[side].push({...l,w,h,x:(p.x*.5+.5)*this.width,y:(-p.y*.5+.5)*this.height});
     }
-    for(const [side,entries] of Object.entries(columns)){
-      // Drop only lower-priority annotations if a very short thumbnail cannot
-      // hold them all. Never put a label back on the drawing to make it fit.
-      while(entries.length&&entries.reduce((total,l)=>total+l.h,0)+gap*Math.max(0,entries.length-1)>lowerLimit-8){
-        const last=entries.reduce((best,l,i)=>l.rank<entries[best].rank?i:best,0);
-        entries[last].el.style.display='none';entries.splice(last,1);
-      }
-      entries.sort((a,b)=>a.y-b.y);let cursor=8;
-      for(const l of entries){l.top=Math.max(cursor,l.y-l.h/2);cursor=l.top+l.h+gap;}
-      cursor=lowerLimit;
-      for(let i=entries.length-1;i>=0;i--){const l=entries[i];l.top=Math.min(l.top,cursor-l.h);cursor=l.top-gap;}
+    // Stable ordering uses feature identity, never the moving attachment's x coordinate.
+    for(const [side,entries] of Object.entries(rows)){
+      entries.sort((a,b)=>a.text.localeCompare(b.text));
+      const total=entries.reduce((n,l)=>n+l.w,0)+gap*Math.max(0,entries.length-1);let left=(this.width-total)/2;
       for(const l of entries){
-        const cx=side==='left'?pad+l.w/2:this.width-pad-l.w/2,cy=l.top+l.h/2;
+        const cx=left+l.w/2,cy=side==='top'?Math.max(pad+l.h/2,bounds.top-12-l.h/2):Math.min(this.height-pad-l.h/2,bounds.bottom+12+l.h/2);left+=l.w+gap;
         l.el.style.left=cx+'px';l.el.style.top=cy+'px';l.el.dataset.dock=side;
-        const edge=side==='left'?cx+l.w/2:cx-l.w/2,elbow=edge+(side==='left'?9:-9);
+        const edge=side==='top'?cy+l.h/2:cy-l.h/2;
         const cls=l.el.classList.contains('highlight')?'callout-highlight':l.el.classList.contains('angle')?'callout-angle':'callout-neutral';
-        const feature=l.text.replaceAll('&','&amp;').replaceAll('"','&quot;');
-        leaders.push(`<path data-feature="${feature}" class="${cls}" d="M${edge.toFixed(2)},${cy.toFixed(2)}L${elbow.toFixed(2)},${cy.toFixed(2)}L${l.x.toFixed(2)},${l.y.toFixed(2)}"/><circle data-feature="${feature}" class="${cls}" cx="${l.x.toFixed(2)}" cy="${l.y.toFixed(2)}" r="1.8"/>`);
+        leaders.push(`<path data-feature="${l.text}" class="${cls}" d="M${cx.toFixed(2)},${edge.toFixed(2)}L${cx.toFixed(2)},${(edge+(side==='top'?6:-6)).toFixed(2)}L${l.x.toFixed(2)},${l.y.toFixed(2)}"/><circle data-feature="${l.text}" class="${cls}" cx="${l.x.toFixed(2)}" cy="${l.y.toFixed(2)}" r="2.5"/>`);
       }
     }
-    this.labelLeaders.setAttribute('viewBox',`0 0 ${this.width} ${this.height}`);
-    this.labelLeaders.innerHTML=leaders.join('');
+    this.labelLeaders.setAttribute('viewBox',`0 0 ${this.width} ${this.height}`);this.labelLeaders.innerHTML=leaders.join('');
   }
   render(s,earthAngle){
     if(this.error)return;
@@ -323,15 +300,15 @@ export class OrbitScene {
     if(!this.dirty&&this.lastNu===s.nu&&this.lastEarthAngle===earthAngle)return;
     this.dirty=false;this.lastNu=s.nu;this.lastEarthAngle=earthAngle;
     this.earth.rotation.y=earthAngle;
-    const pos=eci(s.position),dir=eci(s.velocity).normalize();this.satellite.position.copy(pos);
-    const scale=Math.max(.045,this.camera.position.distanceTo(pos)*.009);this.satellite.scale.setScalar(scale);
-    this.satPin.position.copy(pos);this.satPin.scale.setScalar(scale*5.5);
-    this.satellite.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),dir);
-    this.subpoint.position.copy(pos).normalize().multiplyScalar(1.014);
+    const pos=eci(s.position),dir=eci(s.velocity).normalize();
+    const pixel=this.unitsPerPixel(pos);
+    this.satPin.position.copy(pos);this.satPin.scale.setScalar(pixel*18);
+    this.subpoint.position.copy(pos).normalize().multiplyScalar(1.014);this.subpoint.scale.setScalar(7.5*this.unitsPerPixel(this.subpoint.position)/.022);
     const arr=this.projection.geometry.attributes.position;
     arr.setXYZ(0,...this.subpoint.position.toArray());arr.setXYZ(1,...pos.toArray());arr.needsUpdate=true;this.projection.computeLineDistances();
-    this.positionArrow.setDirection(pos.clone().normalize());this.positionArrow.setLength(pos.length(),.12,.06);
-    this.velocityArrow.position.copy(pos);this.velocityArrow.setDirection(dir);this.velocityArrow.setLength(.7,.12,.06);
+    this.positionArrow.setDirection(pos.clone().normalize());this.sizeArrow(this.positionArrow,pos.length());
+    this.velocityArrow.position.copy(pos);this.velocityArrow.setDirection(dir);this.sizeArrow(this.velocityArrow,.7);
+    this.referenceGroup.traverse(o=>{if(o.shaft)this.sizeArrow(o,o.userData.length);});
     this.layoutLabels(pos);
     this.renderer.render(this.scene,this.camera);
   }

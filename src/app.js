@@ -24,7 +24,7 @@ const definitions={
   arg:{symbol:'ω',name:'Perigee',full:'Argument of perigee',min:0,max:360,step:1,unit:'°',title:'Perigee’s place in the plane',text:'Argument of perigee moves the ellipse within its plane, from the ascending node to perigee. The orbital plane itself stays fixed.'},
   nu:{symbol:'ν',name:'Location',full:'True anomaly',min:0,max:360,step:1,unit:'°',title:'Where is the spacecraft?',text:'True anomaly locates the spacecraft from perigee, along the direction of motion. Relocating it leaves the orbital path unchanged; time scrubbing also turns Earth.'}
 };
-const state={o:canonicalize({...PRESETS.teaching}),preset:'teaching',t:0,orbitEpoch:0,earthPhase:0,earthEpoch:0,rotating:true,playing:false,speed:300,span:3,selected:'a',options:{axes:false,planes:true,markers:false,vectors:false,projection:true},layout:'both'};
+const state={o:canonicalize({...PRESETS.teaching}),preset:'teaching',t:0,orbitEpoch:0,earthPhase:0,earthEpoch:0,rotating:true,playing:false,speed:300,pace:'orbit:60',span:3,selected:'a',options:{selected:true,axes:false,planes:false,markers:false,vectors:false,projection:true},layout:'both'};
 const scene=new OrbitScene($('#orbit-canvas'));
 let trackDirty=true,lastTrackUpdate=-Infinity,lastAngleUpdate=-Infinity,feedbackTimer;
 let lastDisplayedTime=null,lastDisplayedOrbit=null,lastDisplayedEarth=null;
@@ -54,7 +54,7 @@ function makeControls(){
   for(const [index,key] of Object.keys(definitions).entries()){
     const d=descriptor(key),card=document.createElement('div');card.className='element-card';card.dataset.key=key;
     card.style.setProperty('--element-column',index+1);
-    card.innerHTML=`<button class="element-select" aria-pressed="false" title="Explain ${d.full}"><span class="element-symbol">${d.symbol}</span><span class="element-name">${d.name}</span><span class="element-summary" aria-hidden="true"></span></button><div class="element-value"><input type="number" inputmode="decimal" aria-label="${d.full}" min="${d.min}" max="${d.max}" step="${key==='a'?'0.01':key==='e'?'0.001':'0.1'}"><span class="unit">${d.unit}</span><span class="undefined-label" hidden>Undefined</span></div><input type="range" min="${d.min}" max="${d.max}" step="${d.step}" aria-label="Adjust ${d.full}"><div class="element-description">${d.full.toUpperCase()}</div>`;
+    card.innerHTML=`<button class="element-select" aria-pressed="false" title="Explain ${d.full}"><span class="element-symbol">${d.symbol}</span><span class="element-name">${d.name}</span><span class="element-summary" aria-hidden="true"></span></button><div class="element-value"><input type="number" inputmode="decimal" aria-label="${d.full}" min="${d.min}" max="${d.max}" step="${key==='a'?'0.01':key==='e'?'0.001':'0.1'}"><span class="unit">${d.unit}</span><span class="undefined-label" hidden>Undefined</span></div><input type="range" min="${d.min}" max="${d.max}" step="${d.step}" aria-label="Adjust ${d.full}"><div class="element-description">${d.full}</div>`;
     card.querySelector('button').addEventListener('click',()=>{
       selectElement(key);
       if(document.body.classList.contains('controls-collapsed')){
@@ -79,7 +79,7 @@ function updateControls(force=false){
     const key=card.dataset.key,d=descriptor(key),input=card.querySelector('input[type=number]'),range=card.querySelector('input[type=range]'),btn=card.querySelector('button');
     card.classList.toggle('active',state.selected===key);card.classList.toggle('disabled',!!d.disabled);btn.setAttribute('aria-pressed',String(state.selected===key));
     card.querySelector('.element-symbol').textContent=d.symbol;
-    card.querySelector('.element-description').textContent=d.disabled?d.reason:d.full.toUpperCase();
+    card.querySelector('.element-description').textContent=d.disabled?d.reason:d.full;
     input.hidden=!!d.disabled;card.querySelector('.unit').hidden=!!d.disabled;card.querySelector('.undefined-label').hidden=!d.disabled;
     input.disabled=range.disabled=!!d.disabled;
     input.setAttribute('aria-label',d.full);range.setAttribute('aria-label','Adjust '+d.full);btn.title='Explain '+d.full;
@@ -107,7 +107,7 @@ function togglePlay(){
 function selectElement(key){
   const changed=state.selected!==key;
   state.selected=key;updateControls();updateConcept();rebuildScene();trackDirty=true;
-  if(changed)scene.frameDrawing();
+  if(changed)scene.fitView();
 }
 function editElement(key,value){
   pause('PAUSED · ELEMENT EDITED');state.selected=key;
@@ -125,9 +125,20 @@ function editElement(key,value){
   updateControls(true);updateConcept();updateMetrics();rebuildScene();trackDirty=true;
   setTimelineBounds();
 }
+function teachingSentence(d){
+  if(d.disabled)return d.text.split('. ')[0]+'.';
+  const sentences={a:'A larger orbit takes longer to complete.',e:'More eccentricity stretches the orbit and increases time near apogee.',
+    i:state.o.i<=90?'Tilting toward 90° increases the latitude range.':'Beyond 90°, more tilt reduces the latitude range.',
+    raan:'RAAN swivels the whole orbital plane around Earth.',arg:'Move perigee around the plane without tilting it.',nu:'Move the spacecraft along its existing orbit.'};
+  return sentences[state.selected];
+}
+function updateSpeed(){
+  state.speed=state.pace.startsWith('orbit:')?period(state.o.a)/Number(state.pace.split(':')[1]):Number(state.pace);
+  $('#speed-multiplier').textContent=number(state.speed,1)+'× real time';
+}
 function updateConcept(){
   const d=descriptor(state.selected),circ=isCircular(state.o),eq=isEquatorial(state.o);
-  $('#concept-symbol').textContent=d.symbol;$('#concept-title').textContent=d.title;$('#concept-tag').textContent=d.full.toUpperCase();$('#concept-text').textContent=d.text;
+  $('#concept-symbol').textContent=d.symbol;$('#concept-title').textContent=d.title;$('#concept-tag').textContent=d.full;$('#concept-text').textContent=teachingSentence(d);
   $('#quarter-turns').hidden=state.selected!=='arg'||d.disabled||eq;
   $('#prompt-button').hidden=!$('#quarter-turns').hidden;
   const note=circ&&eq?'Circular + equatorial: Ω, ω and ν are undefined. Use true longitude ℓ.':circ?'Circular orbit: ω and ν are undefined. Use argument of latitude u.':eq?'Equatorial orbit: Ω and ω are undefined. Use longitude of perigee Π.':'';
@@ -137,13 +148,14 @@ function updateConcept(){
 }
 function updateMetrics(){
   const o=state.o,P=period(o.a);
+  updateSpeed();
   $('#stat-period').innerHTML=P>=36000?`${number(P/3600,2)} <small>h</small>`:`${number(P/60,1)} <small>min</small>`;
   $('#stat-perigee').innerHTML=`${number(o.a*(1-o.e)-EARTH_RADIUS)} <small>km</small>`;
   $('#stat-apogee').innerHTML=`${number(o.a*(1+o.e)-EARTH_RADIUS)} <small>km</small>`;
   $('#stat-maxlat').innerHTML=`±${number(maxLatitude(o.i),1)}<small>°</small>`;
   $('#earth-turn').textContent=number(state.rotating?EARTH_RATE*P/DEG:0,2)+'°';
 }
-function rebuildScene(fit=false){scene.setOrbit({...state.o,nu:current().nu},state.selected,state.options,fit);}
+function rebuildScene(fit=false){scene.setOrbit({...state.o,nu:current().nu},state.options.selected?state.selected:null,state.options,fit);}
 function setTimelineBounds(){
   const P=period(state.o.a),range=$('#time');
   range.min=Math.floor(Math.min(-P,Math.floor(state.t/P)*P-P));range.max=Math.ceil(Math.max(P*2,Math.ceil(state.t/P)*P+P));
@@ -166,20 +178,26 @@ function buildMap(){
     for(const polygon of polygons){const d=polygon.map(ring=>ring.map(([lon,lat],j)=>`${j?'L':'M'}${mapX(lon).toFixed(2)},${mapY(lat).toFixed(2)}`).join('')+'Z').join('');svg('path',{d,class:'land-path','fill-rule':'evenodd'},land);}
   }
   const grid=$('#graticule'),labels=$('#map-axis-labels');
-  for(let lon=-180;lon<=180;lon+=30){svg('line',{x1:mapX(lon),x2:mapX(lon),y1:32,y2:532,class:'graticule-line'},grid);if(lon%60===0){const t=svg('text',{x:mapX(lon),y:563,class:'map-axis-label'},labels);t.textContent=lon===0?'0°':`${Math.abs(lon)}°${lon<0?'W':'E'}`;}}
-  for(let lat=-90;lat<=90;lat+=30){svg('line',{x1:40,x2:1040,y1:mapY(lat),y2:mapY(lat),class:'graticule-line'+(lat===0?' equator':'')},grid);const t=svg('text',{x:32,y:mapY(lat)+6,class:'map-axis-label lat'},labels);t.textContent=lat===0?'0°':`${Math.abs(lat)}°`;}
+  for(let lon=-180;lon<=180;lon+=30){
+    if(lon%60===0)svg('line',{x1:mapX(lon),x2:mapX(lon),y1:32,y2:532,class:'graticule-line'},grid);
+    const t=svg('text',{x:mapX(lon),y:563,class:'map-axis-label'},labels);t.dataset.lon=lon;
+    if(lon===-180)t.style.textAnchor='start';if(lon===180)t.style.textAnchor='end';
+    t.textContent=lon===0?'0°':`${Math.abs(lon)}°${lon<0?'W':'E'}`;
+  }
+  for(let lat=-90;lat<=90;lat+=30){svg('line',{x1:40,x2:1040,y1:mapY(lat),y2:mapY(lat),class:'graticule-line'+(lat===0?' equator':'')},grid);const t=svg('text',{x:32,y:mapY(lat)+6,class:'map-axis-label lat'},labels);t.dataset.lat=lat;t.textContent=lat===0?'0°':`${Math.abs(lat)}°${lat<0?'S':'N'}`;}
   // SVG typography otherwise becomes unreadably small when the map is letterboxed.
   const map=$('#ground-map');
   new ResizeObserver(()=>{
-    const scale=Math.min(map.clientWidth/1170,map.clientHeight/620);
+    const scale=Math.min((map.clientWidth-64)/1000,(map.clientHeight-38)/500);
     if(scale<=0)return;
     mapScale=scale;
-    const size=clamp((innerWidth>=1700?18:14)/scale,24,53);
-    map.style.setProperty('--map-label-size',size+'px');map.style.setProperty('--map-lat-size',size*.9+'px');
-    for(const label of $$('#map-axis-labels .map-axis-label:not(.lat)'))label.setAttribute('y',532+size*1.25);
-    $('#ground-point .point-center').setAttribute('r',5/scale);
-    $('#ground-point .point-ring').setAttribute('r',10/scale);
-    $('#ground-point circle:first-child').setAttribute('r',21/scale);
+    map.setAttribute('viewBox',`${40-52/scale} ${32-4/scale} ${1000+64/scale} ${500+38/scale}`);
+    const size=18/scale;
+    map.style.setProperty('--map-label-size',size+'px');map.style.setProperty('--map-lat-size',size+'px');
+    for(const label of $$('#map-axis-labels .lat')){label.setAttribute('x',40-6/scale);label.style.display=500*scale<130&&Number(label.dataset.lat)%90!==0?'none':'';}
+    for(const label of $$('#map-axis-labels .map-axis-label:not(.lat)')){label.setAttribute('y',532+22/scale);label.style.display=Number(label.dataset.lon)%(1000*scale<320?180:1000*scale<600?90:60)!==0?'none':'';}
+    $('#ground-point .point-center').setAttribute('r',4/scale);
+    $('#ground-point .point-ring').setAttribute('r',8/scale);
     for(const node of $$('.map-node'))node.setAttribute('r',4/scale);
     trackDirty=true;
   }).observe(map);
@@ -194,9 +212,9 @@ function renderTrack(){
   if(!future.length||future[0].t>0)future.unshift(now);
   $('#track-past').setAttribute('d',pathFor(past));$('#track-future').setAttribute('d',pathFor(future));
   const guides=$('#latitude-guides');guides.replaceChildren();
-  if(state.selected==='i')for(const lat of [-maxLatitude(state.o.i),maxLatitude(state.o.i)])svg('line',{x1:40,x2:1040,y1:mapY(lat),y2:mapY(lat),class:'latitude-guide'},guides);
+  if(state.options.selected&&state.selected==='i')for(const lat of [-maxLatitude(state.o.i),maxLatitude(state.o.i)])svg('line',{x1:40,x2:1040,y1:mapY(lat),y2:mapY(lat),class:'latitude-guide'},guides);
   const nodes=$('#map-nodes');nodes.replaceChildren();
-  if(!isEquatorial(state.o)&&(state.options.markers||state.selected==='raan')){
+  if(!isEquatorial(state.o)&&(state.options.markers||(state.options.selected&&state.selected==='raan'))){
     const o=snapshot,target=meanFromTrue(mod(-o.arg),o.e),M=meanFromTrue(o.nu,o.e),dt=mod(target-M,TAU)/meanMotion(o.a),P=period(o.a);
     for(let j=0;j<2;j++){
       const t=dt+j*P,g=groundPoint(stateAt(o,t).position,angle+(state.rotating?EARTH_RATE:0)*t);
@@ -232,7 +250,7 @@ $('#play').addEventListener('click',togglePlay);
 $('#reset-time').addEventListener('click',()=>{pause('PAUSED · TIME RESET');state.t=0;trackDirty=true;updateControls();setTimelineBounds();});
 $('#reset-scenario').addEventListener('click',()=>loadPreset(state.preset));
 $('#preset').addEventListener('change',e=>loadPreset(e.target.value));
-$('#speed').addEventListener('change',e=>state.speed=Number(e.target.value));
+$('#speed').addEventListener('change',e=>{state.pace=e.target.value;updateSpeed();});
 $('#time').addEventListener('input',e=>{pause('PAUSED · SCRUBBING TIME');state.t=Number(e.target.value);trackDirty=true;updateControls();scene.updateAngle(current().nu);});
 $('#rotation').addEventListener('click',()=>{
   const phase=earthAngle();state.earthPhase=phase;state.earthEpoch=state.t;state.rotating=!state.rotating;
@@ -241,30 +259,37 @@ $('#rotation').addEventListener('click',()=>{
 });
 $('#track-span').addEventListener('change',e=>{state.span=Number(e.target.value);trackDirty=true;});
 $('#camera').addEventListener('change',e=>scene.setView(e.target.value));
-for(const key of Object.keys(state.options))$('#overlay-'+key).addEventListener('change',e=>{state.options[key]=e.target.checked;rebuildScene();trackDirty=true;});
+$('#fit-view').addEventListener('click',()=>scene.fitView());
+$('#geometry-mode').addEventListener('change',e=>{
+  const mode=e.target.value;
+  Object.assign(state.options,{selected:mode!=='essential',axes:mode==='all',planes:mode==='all',markers:mode==='all',vectors:mode==='all',projection:true});
+  for(const [key,value] of Object.entries(state.options))$('#overlay-'+key).checked=value;
+  rebuildScene();trackDirty=true;
+});
+for(const key of Object.keys(state.options))$('#overlay-'+key).addEventListener('change',e=>{state.options[key]=e.target.checked;$('#geometry-mode').value='custom';rebuildScene();trackDirty=true;});
 $('#orbit-canvas').addEventListener('camera-interaction',()=>$('#camera').title='Custom camera · choose a viewpoint to reset');
 for(const button of $$('#quarter-turns button'))button.addEventListener('click',()=>editElement('arg',Number(button.dataset.angle)));
 function setLayout(layout){
   state.layout=layout;$('#workspace').dataset.layout=layout;
   for(const b of $$('.view-button')){b.classList.toggle('active',b.dataset.layout===layout);b.setAttribute('aria-pressed',String(b.dataset.layout===layout));}
-  if(layout==='both')$('#workspace').style.setProperty('--split','52%');
+  if(layout==='both')$('#workspace').style.setProperty('--split','45%');
   else $('#workspace').style.removeProperty('--split');
-  $('#splitter').setAttribute('aria-valuenow',layout==='orbit'?'72':layout==='map'?'28':'52');
+  $('#splitter').setAttribute('aria-valuenow',layout==='orbit'?'72':layout==='map'?'28':'45');
   requestAnimationFrame(()=>{scene.resize();scene.setView(scene.view);});
 }
 for(const button of $$('.view-button'))button.addEventListener('click',()=>setLayout(button.dataset.layout));
 const splitter=$('#splitter');let dragging=false;
 function resizeSplit(percent){
-  percent=clamp(percent,30,70);state.layout='both';$('#workspace').dataset.layout='both';$('#workspace').style.setProperty('--split',percent+'%');splitter.setAttribute('aria-valuenow',Math.round(percent));
+  percent=clamp(percent,28,72);state.layout='both';$('#workspace').dataset.layout='both';$('#workspace').style.setProperty('--split',percent+'%');splitter.setAttribute('aria-valuenow',Math.round(percent));
   for(const b of $$('.view-button')){b.classList.toggle('active',b.dataset.layout==='both');b.setAttribute('aria-pressed',String(b.dataset.layout==='both'));}
 }
 splitter.addEventListener('pointerdown',e=>{dragging=true;splitter.setPointerCapture(e.pointerId);});
 splitter.addEventListener('pointermove',e=>{if(dragging){const r=$('#workspace').getBoundingClientRect();resizeSplit((e.clientX-r.left)/r.width*100);}});
 splitter.addEventListener('pointerup',()=>{dragging=false;scene.resize();});
 splitter.addEventListener('pointercancel',()=>dragging=false);
-splitter.addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','Home'].includes(e.key)){e.preventDefault();const n=Number(splitter.getAttribute('aria-valuenow'));resizeSplit(e.key==='Home'?52:n+(e.key==='ArrowLeft'?-2:2));}});
+splitter.addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','Home'].includes(e.key)){e.preventDefault();const n=Number(splitter.getAttribute('aria-valuenow'));resizeSplit(e.key==='Home'?45:n+(e.key==='ArrowLeft'?-2:2));}});
 $('#theme').addEventListener('click',()=>{
-  const day=document.documentElement.dataset.theme!=='day',theme=day?'day':'night';document.documentElement.dataset.theme=theme;scene.setTheme(theme);$('#theme .action-text').textContent=day?'Night':'Projector';$('#theme').title=day?'Switch to the night theme':'Switch to a bright projector theme';rebuildScene();
+  const day=document.documentElement.dataset.theme!=='day',theme=day?'day':'night';document.documentElement.dataset.theme=theme;scene.setTheme(theme);$('#theme .action-text').textContent=day?'Dark':'Classroom';$('#theme').title=day?'Switch to the dark theme':'Switch to the light classroom theme';$('#theme').setAttribute('aria-label',$('#theme').title);rebuildScene();
 });
 $('#fullscreen').addEventListener('click',async()=>{
   try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}
@@ -294,7 +319,7 @@ $('#controls-toggle').addEventListener('click',()=>{
 });
 window.addEventListener('resize',updateControlMode);
 
-updateControlMode();buildMap();makeControls();updateConcept();updateMetrics();setTimelineBounds();rebuildScene(true);renderTrack();renderCurrent();$('#play .play-icon').innerHTML=playIcon;
+scene.setTheme(document.documentElement.dataset.theme);updateControlMode();buildMap();makeControls();updateConcept();updateMetrics();setTimelineBounds();rebuildScene(true);renderTrack();renderCurrent();$('#play .play-icon').innerHTML=playIcon;
 let previous=performance.now();
 function animate(now){
   const dt=Math.max((now-previous)/1000,0);previous=now;
@@ -310,4 +335,4 @@ function animate(now){
 requestAnimationFrame(animate);
 
 // A read-only diagnostic snapshot supports numerical/browser validation without UI internals.
-Object.defineProperty(window,'orbitExplorer',{value:Object.freeze({snapshot:()=>({orbit:{...state.o},time:state.t,orbitEpoch:state.orbitEpoch,earthAngle:earthAngle(),rotating:state.rotating,playing:state.playing,state:current(),ground:groundPoint(current().position,earthAngle()),period:period(state.o.a),webgl:!scene.error}),constants:Object.freeze({MU,EARTH_RADIUS,SIDEREAL_DAY})})});
+Object.defineProperty(window,'orbitExplorer',{value:Object.freeze({snapshot:()=>({orbit:{...state.o},time:state.t,orbitEpoch:state.orbitEpoch,earthAngle:earthAngle(),rotating:state.rotating,playing:state.playing,speed:state.speed,geometry:{...state.options},camera:scene.diagnostics(),state:current(),ground:groundPoint(current().position,earthAngle()),period:period(state.o.a),webgl:!scene.error}),constants:Object.freeze({MU,EARTH_RADIUS,SIDEREAL_DAY})})});
