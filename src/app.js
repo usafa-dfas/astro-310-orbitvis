@@ -24,7 +24,7 @@ const definitions={
   arg:{symbol:'ω',name:'Perigee',full:'Argument of perigee',min:0,max:360,step:1,unit:'°',title:'Perigee’s place in the plane',text:'Argument of perigee moves the ellipse within its plane, from the ascending node to perigee. The orbital plane itself stays fixed.'},
   nu:{symbol:'ν',name:'Location',full:'True anomaly',min:0,max:360,step:1,unit:'°',title:'Where is the spacecraft?',text:'True anomaly locates the spacecraft from perigee, along the direction of motion. Relocating it leaves the orbital path unchanged; time scrubbing also turns Earth.'}
 };
-const state={o:canonicalize({...PRESETS.teaching}),preset:'teaching',t:0,orbitEpoch:0,earthPhase:0,earthEpoch:0,rotating:true,playing:false,speed:300,pace:'orbit:60',span:3,selected:'a',options:{selected:true,axes:false,planes:false,markers:false,vectors:false,projection:true},layout:'both'};
+const state={o:canonicalize({...PRESETS.teaching}),preset:'teaching',t:0,orbitEpoch:0,earthPhase:0,earthEpoch:0,rotating:true,playing:false,speed:300,pace:'orbit:60',span:3,selected:'a',options:{selected:true,axes:false,equatorialPlane:false,orbitalPlane:false,markers:false,vectors:false,projection:true},layout:'both'};
 const scene=new OrbitScene($('#orbit-canvas'));
 let trackDirty=true,lastTrackUpdate=-Infinity,lastAngleUpdate=-Infinity,feedbackTimer;
 let lastDisplayedTime=null,lastDisplayedOrbit=null,lastDisplayedEarth=null;
@@ -155,7 +155,16 @@ function updateMetrics(){
   $('#stat-maxlat').innerHTML=`±${number(maxLatitude(o.i),1)}<small>°</small>`;
   $('#earth-turn').textContent=number(state.rotating?EARTH_RATE*P/DEG:0,2)+'°';
 }
-function rebuildScene(fit=false){scene.setOrbit({...state.o,nu:current().nu},state.options.selected?state.selected:null,state.options,fit);}
+function rebuildScene(fit=false){
+  // The selected-element preset shows one plane at a time. Individual switches
+  // enter Custom mode, so later element selections and edits respect them.
+  if($('#geometry-mode').value==='selected'){
+    state.options.equatorialPlane=false;
+    state.options.orbitalPlane=['i','arg'].includes(state.selected);
+    for(const key of ['equatorialPlane','orbitalPlane'])$('#overlay-'+key).checked=state.options[key];
+  }
+  scene.setOrbit({...state.o,nu:current().nu},state.options.selected?state.selected:null,state.options,fit);
+}
 function setTimelineBounds(){
   const P=period(state.o.a),range=$('#time');
   range.min=Math.floor(Math.min(-P,Math.floor(state.t/P)*P-P));range.max=Math.ceil(Math.max(P*2,Math.ceil(state.t/P)*P+P));
@@ -262,7 +271,7 @@ $('#camera').addEventListener('change',e=>scene.setView(e.target.value));
 $('#fit-view').addEventListener('click',()=>scene.fitView());
 $('#geometry-mode').addEventListener('change',e=>{
   const mode=e.target.value;
-  Object.assign(state.options,{selected:mode!=='essential',axes:mode==='all',planes:mode==='all',markers:mode==='all',vectors:mode==='all',projection:true});
+  Object.assign(state.options,{selected:mode!=='essential',axes:mode==='all',equatorialPlane:mode==='all',orbitalPlane:mode==='all',markers:mode==='all',vectors:mode==='all',projection:true});
   for(const [key,value] of Object.entries(state.options))$('#overlay-'+key).checked=value;
   rebuildScene();trackDirty=true;
 });

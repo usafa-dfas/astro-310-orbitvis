@@ -102,16 +102,18 @@ export class OrbitScene {
     m.resolution.set(this.width,this.height);
     const line=new Line2(g,m);line.computeLineDistances();line.userData.labelPoints=points.map(p=>p.clone());group.add(line);return line;
   }
-  referencePlane(name,xAxis,yAxis,selected,spacing){
-    // The square lies beyond the camera's entire far clipping volume. Its
-    // physical edges can never enter the viewport; it behaves as an infinite
-    // plane. It must not contribute to the orbit's camera-fit bounds.
+  referencePlane(name,xAxis,yAxis,orbital,spacing,bounds=null){
+    // Unbounded reference planes extend beyond the far clipping volume and
+    // must not affect camera fit. Bounded planes include their four corners.
+    const width=bounds?.width??this.camera.far*4,height=bounds?.height??this.camera.far*4;
     const material=new THREE.ShaderMaterial({
-      uniforms:{tint:{value:new THREE.Color(selected?color.selected:color.reference)},spacing:{value:spacing},
-        baseOpacity:{value:selected?.075:.055},gridOpacity:{value:selected?.2:.16}},
+      uniforms:{tint:{value:new THREE.Color(orbital?color.selected:color.reference)},spacing:{value:spacing},
+        baseOpacity:{value:orbital?.075:.055},gridOpacity:{value:orbital?.2:.16},
+        halfSize:{value:new THREE.Vector2(width/2,height/2)},borderOpacity:{value:bounds?.3:0}},
       vertexShader:`varying vec2 planePosition;
         void main(){planePosition=position.xy;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
       fragmentShader:`uniform vec3 tint;uniform float spacing;uniform float baseOpacity;uniform float gridOpacity;
+        uniform vec2 halfSize;uniform float borderOpacity;
         varying vec2 planePosition;
         void main(){
           vec2 coord=planePosition/spacing;
@@ -119,17 +121,24 @@ export class OrbitScene {
           vec2 edge=abs(fract(coord-.5)-.5)/footprint;
           float grid=1.0-min(min(edge.x,edge.y),1.0);
           // Fade only the grid when its cells become too small near the
-          // horizon. The plane itself has no radial fade or circular boundary.
+          // horizon. Rectangular edges remain visible without a circular rim.
           float readable=smoothstep(8.0,28.0,1.0/max(footprint.x,footprint.y));
-          gl_FragColor=vec4(tint,baseOpacity+gridOpacity*grid*readable);
+          vec2 inset=(halfSize-abs(planePosition))/max(fwidth(planePosition),vec2(.00001));
+          float border=1.0-smoothstep(.5,1.5,min(inset.x,inset.y));
+          gl_FragColor=vec4(tint,baseOpacity+gridOpacity*grid*readable+borderOpacity*border);
           #include <colorspace_fragment>
         }`,
       transparent:true,side:THREE.DoubleSide,depthWrite:false,depthTest:true,toneMapped:false
     });
-    const plane=new THREE.Mesh(new THREE.PlaneGeometry(this.camera.far*4,this.camera.far*4),material);
+    const plane=new THREE.Mesh(new THREE.PlaneGeometry(width,height),material);
     const normal=new THREE.Vector3().crossVectors(xAxis,yAxis).normalize();
     plane.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xAxis,yAxis,normal));
-    plane.name=name;plane.renderOrder=selected?-1:-2;this.referenceGroup.add(plane);
+    if(bounds){
+      plane.position.copy(bounds.center);
+      for(const x of [-width/2,width/2])for(const y of [-height/2,height/2])
+        this.geometryBounds.push(bounds.center.clone().addScaledVector(xAxis,x).addScaledVector(yAxis,y));
+    }
+    plane.name=name;plane.renderOrder=orbital?-1:-2;this.referenceGroup.add(plane);
   }
   label(text,pos,type='',scope='reference',alwaysVisible=false){
     const el=document.createElement('span');el.className='scene-label '+type;el.style.display='none';el.textContent=text;this.labelsEl.append(el);
@@ -148,12 +157,14 @@ export class OrbitScene {
     this.orbitLine=this.line(points,this.orbitGroup,{width:3.5,color:selected==='e'?color.selected:color.orbit});
     const a=o.a/EARTH_RADIUS,r=Math.max(1.28,a*.73);
     const eq=isEquatorial(o),circ=isCircular(o);
-    const planes=options.planes||['i','arg'].includes(selected);
-    if(planes){
-      const spacing=Math.max(1,a/2),emphasize=['i','arg'].includes(selected);
-      this.referencePlane('Equatorial plane',xyz([1,0,0]),xyz([0,1,0]),eq&&emphasize,spacing);
-      // Coincident equatorial/orbital planes are drawn once, including i=180°.
-      if(!eq)this.referencePlane('Orbital plane',xyz(rotateOrbital([1,0,0],o)),xyz(rotateOrbital([0,1,0],o)),emphasize,spacing);
+    const spacing=Math.max(1,a/2);
+    if(options.equatorialPlane)this.referencePlane('Equatorial plane',xyz([1,0,0]),xyz([0,1,0]),false,spacing);
+    if(options.orbitalPlane){
+      // Center the rectangle on the ellipse, not its Earth focus. A small,
+      // even margin keeps all four edges just outside the orbital path.
+      const b=a*Math.sqrt(1-o.e*o.e),margin=a*.1;
+      this.referencePlane('Orbital plane',xyz(rotateOrbital([1,0,0],o)),xyz(rotateOrbital([0,1,0],o)),true,spacing,
+        {width:2*(a+margin),height:2*(b+margin),center:xyz(rotateOrbital([-a*o.e,0,0],o))});
     }
     const axes=options.axes||['i','raan'].includes(selected)||(eq&&['arg','nu'].includes(selected));
     if(axes){for(const [vec,name] of [[[1,0,0],'+I'],[[0,1,0],'+J'],[[0,0,1],'+K']]){
