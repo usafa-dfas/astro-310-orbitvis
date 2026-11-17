@@ -59,7 +59,6 @@ export class OrbitScene {
     pin.fillStyle='#ae4900';pin.beginPath();pin.arc(32,32,12,0,TAU);pin.fill();
     this.pinCanvas=pinCanvas;
     this.satPin=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(pinCanvas),depthWrite:false,depthTest:false}));this.scene.add(this.satPin);
-    this.spacecraftLabel=document.createElement('span');this.spacecraftLabel.className='scene-label highlight';this.spacecraftLabel.textContent='Spacecraft';this.labelsEl.append(this.spacecraftLabel);
     this.subpoint=new THREE.Mesh(new THREE.SphereGeometry(.022,16,16),new THREE.MeshBasicMaterial({color:color.orange}));this.scene.add(this.subpoint);
     this.projection=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3(0,1,0)]),new THREE.LineDashedMaterial({color:color.orange,dashSize:.07,gapSize:.06,transparent:true,opacity:.45}));this.scene.add(this.projection);
     this.velocityArrow=this.arrow(color.selected);this.scene.add(this.velocityArrow);
@@ -103,6 +102,35 @@ export class OrbitScene {
     m.resolution.set(this.width,this.height);
     const line=new Line2(g,m);line.computeLineDistances();line.userData.labelPoints=points.map(p=>p.clone());group.add(line);return line;
   }
+  referencePlane(name,xAxis,yAxis,selected,spacing){
+    // The square lies beyond the camera's entire far clipping volume. Its
+    // physical edges can never enter the viewport; it behaves as an infinite
+    // plane. It must not contribute to the orbit's camera-fit bounds.
+    const material=new THREE.ShaderMaterial({
+      uniforms:{tint:{value:new THREE.Color(selected?color.selected:color.reference)},spacing:{value:spacing},
+        baseOpacity:{value:selected?.075:.055},gridOpacity:{value:selected?.2:.16}},
+      vertexShader:`varying vec2 planePosition;
+        void main(){planePosition=position.xy;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+      fragmentShader:`uniform vec3 tint;uniform float spacing;uniform float baseOpacity;uniform float gridOpacity;
+        varying vec2 planePosition;
+        void main(){
+          vec2 coord=planePosition/spacing;
+          vec2 footprint=max(fwidth(coord),vec2(.00001));
+          vec2 edge=abs(fract(coord-.5)-.5)/footprint;
+          float grid=1.0-min(min(edge.x,edge.y),1.0);
+          // Fade only the grid when its cells become too small near the
+          // horizon. The plane itself has no radial fade or circular boundary.
+          float readable=smoothstep(8.0,28.0,1.0/max(footprint.x,footprint.y));
+          gl_FragColor=vec4(tint,baseOpacity+gridOpacity*grid*readable);
+          #include <colorspace_fragment>
+        }`,
+      transparent:true,side:THREE.DoubleSide,depthWrite:false,depthTest:true,toneMapped:false
+    });
+    const plane=new THREE.Mesh(new THREE.PlaneGeometry(this.camera.far*4,this.camera.far*4),material);
+    const normal=new THREE.Vector3().crossVectors(xAxis,yAxis).normalize();
+    plane.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xAxis,yAxis,normal));
+    plane.name=name;plane.renderOrder=selected?-1:-2;this.referenceGroup.add(plane);
+  }
   label(text,pos,type='',scope='reference',alwaysVisible=false){
     const el=document.createElement('span');el.className='scene-label '+type;el.style.display='none';el.textContent=text;this.labelsEl.append(el);
     this.labels.push({el,pos,scope,text,alwaysVisible});
@@ -120,24 +148,19 @@ export class OrbitScene {
     this.orbitLine=this.line(points,this.orbitGroup,{width:3.5,color:selected==='e'?color.selected:color.orbit});
     const a=o.a/EARTH_RADIUS,r=Math.max(1.28,a*.73);
     const eq=isEquatorial(o),circ=isCircular(o);
-    const planes=options.planes||selected==='i';
+    const planes=options.planes||['i','arg'].includes(selected);
     if(planes){
-      const planeRadius=Math.max(1.35,a*1.04);
-      const disc=new THREE.Mesh(new THREE.CircleGeometry(planeRadius,100),new THREE.MeshBasicMaterial({color:0x44769a,transparent:true,opacity:this.theme==='night'?.055:.09,side:THREE.DoubleSide,depthWrite:false}));disc.rotation.x=-Math.PI/2;this.referenceGroup.add(disc);
-      this.line(this.circlePoints(planeRadius),this.referenceGroup,{color:color.reference,width:2,opacity:.65});
-      if(selected==='i'||selected==='arg'){
-        const geom=new THREE.BufferGeometry();const verts=[0,0,0];
-        for(let j=0;j<=100;j++){const v=xyz(rotateOrbital([planeRadius*Math.cos(j/100*TAU),planeRadius*Math.sin(j/100*TAU),0],o));verts.push(...v.toArray());}
-        const indices=[];for(let j=1;j<=100;j++)indices.push(0,j,j+1);
-        geom.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));geom.setIndex(indices);
-        for(let j=3;j<verts.length;j+=15)this.geometryBounds.push(new THREE.Vector3(...verts.slice(j,j+3)));
-        this.referenceGroup.add(new THREE.Mesh(geom,new THREE.MeshBasicMaterial({color:color.selected,transparent:true,opacity:.15,side:THREE.DoubleSide,depthWrite:false})));
-        this.line(this.circlePoints(planeRadius,v=>xyz(rotateOrbital(v,o))),this.referenceGroup,{color:color.selected,width:3});
-      }
+      const spacing=Math.max(1,a/2),emphasize=['i','arg'].includes(selected);
+      this.referencePlane('Equatorial plane',xyz([1,0,0]),xyz([0,1,0]),eq&&emphasize,spacing);
+      // Coincident equatorial/orbital planes are drawn once, including i=180°.
+      if(!eq)this.referencePlane('Orbital plane',xyz(rotateOrbital([1,0,0],o)),xyz(rotateOrbital([0,1,0],o)),emphasize,spacing);
     }
     const axes=options.axes||['i','raan'].includes(selected)||(eq&&['arg','nu'].includes(selected));
     if(axes){for(const [vec,name] of [[[1,0,0],'+I'],[[0,1,0],'+J'],[[0,0,1],'+K']]){
-      const v=xyz(vec).multiplyScalar(Math.max(1.6,a*.9));this.line([v.clone().negate(),v],this.referenceGroup,{color:color.axis,width:2,opacity:.65,dashed:true});this.label(name,v.clone());
+      const v=xyz(vec).multiplyScalar(Math.max(1.6,a*.9));
+      this.line([v.clone().negate(),new THREE.Vector3()],this.referenceGroup,{color:color.axis,width:1.8,opacity:.5,dashed:true});
+      this.line([new THREE.Vector3(),v],this.referenceGroup,{color:color.axis,width:4,opacity:1});
+      this.label(name,v.clone());
     }}
     if(!eq&&(options.markers||['raan','arg','nu'].includes(selected))){
       const nodes=nodeStates(o);nodes.forEach((s,j)=>{
@@ -288,8 +311,8 @@ export class OrbitScene {
     return {earth,segments,points};
   }
   layoutLabels(spacecraftPosition){
-    const all=[{el:this.spacecraftLabel,pos:spacecraftPosition,text:'Spacecraft',scope:'spacecraft',alwaysVisible:true},...this.labels];
-    const rank=l=>l.scope==='angle'?100:l.scope==='spacecraft'?95:l.el.classList.contains('angle')?90:l.text==='Perigee'||l.text==='Apogee'||l.text.includes('node')?80:50;
+    const all=this.labels;
+    const rank=l=>l.scope==='angle'?100:l.el.classList.contains('angle')?90:l.text==='Perigee'||l.text==='Apogee'||l.text.includes('node')?80:50;
     const aliases={'Ascending node':'AN','Descending node':'DN','Earth · focus':'Earth focus','Perigee longitude, Π':'Perigee, Π','Latitude angle, u':'Location, u'};
     const labels=[];
     for(const l of all){

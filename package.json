@@ -8,6 +8,7 @@
     "test": "node --test tests/physics.test.mjs tests/labels.test.mjs",
     "test:browser": "python tests/browser.py",
     "test:labels": "python tests/labels-browser.py",
+    "test:geometry": "python tests/geometry-browser.py",
     "test:projector": "python tests/projector.py",
     "serve": "python -m http.server 8000 --bind 0.0.0.0"
   },

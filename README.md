@@ -22,7 +22,8 @@ For GitHub Pages, publish the repository root from the intended branch using the
 - **Play** advances real Keplerian motion at the selected time multiplier. **Space** toggles playback outside input controls. **Restart** returns to the scenario's time zero; **Reset scenario** restores the selected preset and camera.
 - The time scrubber moves Earth and spacecraft together. Editing the location angle moves the spacecraft at the same instant. Other element edits preserve the displayed location angle and Earth orientation.
 - Drag the 3D view to rotate the camera; scroll or pinch to zoom. The camera menu offers oblique, north-pole, equatorial, and orbit-plane views.
-- **Geometry** reveals inertial axes, reference planes, nodes/apsides, R/V/h directions, and the sub-satellite projection. Selecting an element automatically reveals its relevant construction.
+- **Geometry** reveals inertial axes, reference planes, nodes/apsides, R/V/h directions, and the sub-satellite projection. Positive I/J/K axes are solid and bold; negative halves remain lighter and dashed. Equatorial and orbital planes extend to the viewport edges with a subtle straight grid, without circular borders. Selecting an element automatically reveals its relevant construction.
+- A fixed orange **Spacecraft** key beside **Fit view** identifies the moving ring marker; the spacecraft has no tracking text or leader.
 - Orbit labels sit in nearby open space, clear of the globe, orbit, angle arcs, and vectors. Short leaders attach to their features. Placement minimizes leader crossings and avoids running a leader through another label; local offsets stay stable during playback until geometry needs more room. AN/DN abbreviate ascending/descending nodes on small views or when full names would require long connectors.
 - Turn **Earth rotates** off to show how a nonrotating Earth changes the ground track. A persistent notice identifies this teaching model.
 - **Both / Orbit / Map** adjusts panel proportions. Drag the divider, or focus it and use arrow keys. **Both** restores the balanced split.
@@ -99,6 +100,7 @@ npm run build
 npm run test:browser
 npm run test:projector
 npm run test:labels
+npm run test:geometry
 ```
 
 Set `CHROMIUM_PATH` if needed. The suite starts and stops its own local HTTP server, blocks external requests, exercises the actual interface, checks the target layouts, loads the built document with the browser offline, and tests the WebGL fallback. Results and screenshots go to ignored `test-results/`.
@@ -106,6 +108,8 @@ Set `CHROMIUM_PATH` if needed. The suite starts and stops its own local HTTP ser
 The projector suite covers both themes at 1920×1080, 1280×720, 1024×768, and 931×650, with circular, polar, eccentric, and geostationary presets. It checks actual map proportions, label clipping and collisions, fixed marker size, explicit camera fitting, stable edit scale, and teaching speeds. Normal and reduced-contrast screenshots plus dimension reports are written to `test-results/projector/`. Reduced-contrast captures are an initial washout check; classroom projector feedback is still needed.
 
 The label suite measures crossings, connector lengths, label collisions, and clearance from the projected geometry across all six elements and four camera views, including playback and all-geometry mode, at 1920×1080, 1718×975, and 931×650. Reports and orbit-view screenshots go to `test-results/labels/`.
+
+The geometry suite also uses Pillow to compare rendered pixels: positive-axis stroke continuity and emphasis, reference planes reaching the screen edges, camera-fit stability, and a stationary spacecraft key in both themes at desktop and projector sizes. Results and screenshots go to `test-results/geometry/`.
 
 Chromium was exercised in this development environment using software WebGL. Projector hardware, interactive frame rate on classroom laptops, Firefox, and Safari still need direct classroom/browser checks.
 

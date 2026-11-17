@@ -315,3 +315,19 @@ input[type=range]::-moz-range-thumb { width: 19px; height: 19px; }
   .course { display: inline; font-size: 14px; }
   .preset-control select { width: 230px; min-width: 0; }
 }
+/* The spacecraft key stays in the toolbar, outside the animated drawing. */
+.spacecraft-key { display: inline-flex; align-items: center; gap: 7px; margin-left: auto; color: var(--orange); font-size: 18px; white-space: nowrap; }
+.spacecraft-symbol { display: inline-block; position: relative; width: 18px; height: 18px; flex-shrink: 0; border: 2px solid var(--orange); border-radius: 50%; background: var(--panel); }
+.spacecraft-symbol::after { content: ''; position: absolute; inset: 4px; border-radius: 50%; background: var(--orange); }
+.plane-key { margin: 0 4px 7px; font-size: 16px; color: var(--muted); line-height: 1.65; }
+.plane-key span { display: inline-block; width: 17px; height: 12px; margin-right: 8px; border: 1px solid var(--muted); background: var(--raised); }
+.plane-key .orbital-swatch { border-color: var(--selected); background: var(--selected-dim); }
+@container (max-width: 340px) {
+  .orbit-panel .panel-tools { gap: 4px; padding-left: 5px; padding-right: 5px; }
+  .overlay-menu summary,.panel-tools .button { padding-left: 4px; padding-right: 4px; }
+  .spacecraft-key { font-size: 15px; gap: 4px; }
+  .spacecraft-symbol { width: 14px; height: 14px; }.spacecraft-symbol::after { inset: 3px; }
+}
+/* Keep the key visible when the orbit is the companion in Map focus mode. */
+.workspace[data-layout=map] .orbit-panel .panel-tools { display: flex; }
+.workspace[data-layout=map] .orbit-panel .panel-tools > :not(.spacecraft-key) { display: none; }
