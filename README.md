@@ -23,7 +23,7 @@ For GitHub Pages, publish the repository root from the intended branch using the
 - The time scrubber moves Earth and spacecraft together. Editing the location angle moves the spacecraft at the same instant. Other element edits preserve the displayed location angle and Earth orientation.
 - Drag the 3D view to rotate the camera; scroll or pinch to zoom. The camera menu offers oblique, north-pole, equatorial, and orbit-plane views.
 - **Geometry** reveals inertial axes, reference planes, nodes/apsides, R/V/h directions, and the sub-satellite projection. Selecting an element automatically reveals its relevant construction.
-- Inertial-view labels sit above and below the drawing, clear of the globe and orbit. Thin leader lines end at the actual feature and follow spacecraft motion and camera changes. Peripheral lanes sit just outside the projected drawing; stable label slots leave the middle available for a larger orbit. On narrow views, AN/DN identify the ascending/descending nodes and S/C identifies the spacecraft.
+- Orbit labels sit in nearby open space, clear of the globe, orbit, angle arcs, and vectors. Short leaders attach to their features. Placement minimizes leader crossings and avoids running a leader through another label; local offsets stay stable during playback until geometry needs more room. AN/DN abbreviate ascending/descending nodes on small views or when full names would require long connectors.
 - Turn **Earth rotates** off to show how a nonrotating Earth changes the ground track. A persistent notice identifies this teaching model.
 - **Both / Orbit / Map** adjusts panel proportions. Drag the divider, or focus it and use arrow keys. **Both** restores the balanced split.
 - All six COE sliders sit in a **left control pane**, with the selected-element explanation below them. The pane scrolls independently, leaving the orbit and map at full height. **Explain** opens a larger version of the explanation.
@@ -90,7 +90,7 @@ Edit source files and rebuild. Commit the regenerated `index.html` alongside sou
 
 ## Validation
 
-`npm test` runs the orbital regression suite with Node's built-in test runner. It checks conservation laws, analytical cases, sidereal stationarity, retrograde/equatorial conventions, course fixtures, and ground-track discontinuities.
+`npm test` runs the orbital and callout-layout regression suites with Node's built-in test runner. It checks conservation laws, analytical cases, sidereal stationarity, retrograde/equatorial conventions, course fixtures, and ground-track discontinuities.
 
 The browser suite requires Python's `playwright` package and Chromium (or Playwright's installed Chromium). In a development environment with those available:
 
@@ -98,11 +98,14 @@ The browser suite requires Python's `playwright` package and Chromium (or Playwr
 npm run build
 npm run test:browser
 npm run test:projector
+npm run test:labels
 ```
 
 Set `CHROMIUM_PATH` if needed. The suite starts and stops its own local HTTP server, blocks external requests, exercises the actual interface, checks the target layouts, loads the built document with the browser offline, and tests the WebGL fallback. Results and screenshots go to ignored `test-results/`.
 
 The projector suite covers both themes at 1920×1080, 1280×720, 1024×768, and 931×650, with circular, polar, eccentric, and geostationary presets. It checks actual map proportions, label clipping and collisions, fixed marker size, explicit camera fitting, stable edit scale, and teaching speeds. Normal and reduced-contrast screenshots plus dimension reports are written to `test-results/projector/`. Reduced-contrast captures are an initial washout check; classroom projector feedback is still needed.
+
+The label suite measures crossings, connector lengths, label collisions, and clearance from the projected geometry across all six elements and four camera views, including playback and all-geometry mode, at 1920×1080, 1718×975, and 931×650. Reports and orbit-view screenshots go to `test-results/labels/`.
 
 Chromium was exercised in this development environment using software WebGL. Projector hardware, interactive frame rate on classroom laptops, Firefox, and Safari still need direct classroom/browser checks.
 

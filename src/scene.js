@@ -3,6 +3,7 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {Line2} from 'three/addons/lines/Line2.js';
 import {LineGeometry} from 'three/addons/lines/LineGeometry.js';
 import {LineMaterial} from 'three/addons/lines/LineMaterial.js';
+import {placeLabels} from './label-layout.js';
 import earthImage from './assets/earth.jpg';
 import {EARTH_RADIUS,DEG,TAU,stateAtTrue,rotateOrbital,isCircular,isEquatorial,nodeStates,anglesAt,cross,unit,norm} from './physics.js';
 
@@ -13,7 +14,7 @@ const color={orbit:0x73e1dc,selected:0xd4b3ff,orange:0xffbd75,reference:0x637f9a
 export class OrbitScene {
   constructor(container) {
     this.container=container;this.labelsEl=document.querySelector('#scene-labels');this.labels=[];
-    this.calloutSides=new Map();this.orbitBounds=[];this.geometryBounds=[];this.angleBounds=[];
+    this.labelHistory=new Map();this.shortLabels=new Set();this.orbitBounds=[];this.geometryBounds=[];this.angleBounds=[];
     this.labelLeaders=document.createElementNS('http://www.w3.org/2000/svg','svg');
     this.labelLeaders.classList.add('label-leaders');this.labelLeaders.setAttribute('aria-hidden','true');this.labelsEl.append(this.labelLeaders);
     this.width=1;this.height=1;this.theme='night';this.view='oblique';this.o=null;this.dirty=true;
@@ -100,10 +101,10 @@ export class OrbitScene {
     const g=new LineGeometry();g.setPositions(points.flatMap(p=>p.toArray()));
     const m=new LineMaterial({color:options.color??color.orbit,linewidth:options.width??2,transparent:true,opacity:options.opacity??1,depthWrite:false,dashed:!!options.dashed,dashSize:.11,gapSize:.07});
     m.resolution.set(this.width,this.height);
-    const line=new Line2(g,m);line.computeLineDistances();group.add(line);return line;
+    const line=new Line2(g,m);line.computeLineDistances();line.userData.labelPoints=points.map(p=>p.clone());group.add(line);return line;
   }
   label(text,pos,type='',scope='reference',alwaysVisible=false){
-    const el=document.createElement('span');el.className='scene-label '+type;el.textContent=text;this.labelsEl.append(el);
+    const el=document.createElement('span');el.className='scene-label '+type;el.style.display='none';el.textContent=text;this.labelsEl.append(el);
     this.labels.push({el,pos,scope,text,alwaysVisible});
   }
   clearLabels(scope){this.labels=this.labels.filter(l=>{if(l.scope===scope){l.el.remove();return false;}return true;});}
@@ -230,12 +231,12 @@ export class OrbitScene {
     let distance=2;
     for(const point of points){const p=point.clone().sub(target),depth=p.dot(direction);distance=Math.max(distance,depth+Math.abs(p.dot(right))/(tangent*this.camera.aspect*safeX),depth+Math.abs(p.dot(up))/(tangent*safeY));}
     this.controls.target.copy(target);this.camera.position.copy(target).addScaledVector(direction,distance*1.04);
-    this.controls.update();this.camera.updateMatrixWorld();this.calloutSides.clear();this.dirty=true;
+    this.controls.update();this.camera.updateMatrixWorld();this.labelHistory.clear();this.shortLabels.clear();this.dirty=true;
   }
   diagnostics(){
     if(this.error)return null;
     const points=this.orbitBounds.map(p=>p.clone().project(this.camera));
-    return {position:this.camera.position.toArray(),target:this.controls.target.toArray(),orbitWidth:(Math.max(...points.map(p=>p.x))-Math.min(...points.map(p=>p.x)))*this.width/2,orbitHeight:(Math.max(...points.map(p=>p.y))-Math.min(...points.map(p=>p.y)))*this.height/2,width:this.width,height:this.height,bounds:this.projectedGeometryBounds()};
+    return {position:this.camera.position.toArray(),target:this.controls.target.toArray(),orbitWidth:(Math.max(...points.map(p=>p.x))-Math.min(...points.map(p=>p.x)))*this.width/2,orbitHeight:(Math.max(...points.map(p=>p.y))-Math.min(...points.map(p=>p.y)))*this.height/2,width:this.width,height:this.height,labelsReady:!this.dirty,bounds:this.projectedGeometryBounds(),annotationGeometry:this.labelObstacles?structuredClone(this.labelObstacles):null};
   }
   setTheme(theme){
     this.theme=theme;
@@ -261,35 +262,65 @@ export class OrbitScene {
     }
     return {left:Math.max(0,left-7),right:Math.min(this.width,rightEdge+7),top:Math.max(0,top-7),bottom:Math.min(this.height,bottom+7)};
   }
+  annotationObstacles(spacecraftPosition){
+    const project=p=>{const v=p.clone().project(this.camera);return {x:(v.x*.5+.5)*this.width,y:(-v.y*.5+.5)*this.height};};
+    const segments=[];
+    // Project the rendered line paths, not a bounding rectangle around the
+    // whole orbit. Empty space beside a feature can then hold its own label.
+    this.scene.updateMatrixWorld(true);
+    this.scene.traverse(object=>{
+      if(!object.userData.labelPoints)return;
+      for(let parent=object;parent;parent=parent.parent)if(!parent.visible)return;
+      const points=object.userData.labelPoints.map(p=>project(p.clone().applyMatrix4(object.matrixWorld)));
+      for(let i=1;i<points.length;i++)segments.push([points[i-1],points[i]]);
+    });
+    if(this.projection.visible)segments.push([project(this.subpoint.position),project(spacecraftPosition)]);
+    const direction=this.camera.position.clone().normalize(),d=this.camera.position.length();
+    const right=new THREE.Vector3().crossVectors(direction,new THREE.Vector3(0,1,0));
+    if(right.lengthSq()<1e-6)right.set(1,0,0);else right.normalize();
+    const up=new THREE.Vector3().crossVectors(direction,right).normalize(),center=direction.clone().multiplyScalar(1/d);
+    const radius=Math.sqrt(Math.max(0,1-1/(d*d)));
+    const silhouette=Array.from({length:48},(_,i)=>project(center.clone().addScaledVector(right,radius*Math.cos(i*TAU/48)).addScaledVector(up,radius*Math.sin(i*TAU/48))));
+    const x=(Math.min(...silhouette.map(p=>p.x))+Math.max(...silhouette.map(p=>p.x)))/2;
+    const y=(Math.min(...silhouette.map(p=>p.y))+Math.max(...silhouette.map(p=>p.y)))/2;
+    const earth={x,y,r:Math.max(...silhouette.map(p=>Math.hypot(p.x-x,p.y-y)))};
+    const points=[{...project(spacecraftPosition),r:10},...this.labels.map(l=>({...project(l.pos),r:5}))];
+    return {earth,segments,points};
+  }
   layoutLabels(spacecraftPosition){
     const all=[{el:this.spacecraftLabel,pos:spacecraftPosition,text:'Spacecraft',scope:'spacecraft',alwaysVisible:true},...this.labels];
-    const rank=l=>l.scope==='angle'?100:l.scope==='spacecraft'?95:l.el.classList.contains('angle')?90:l.text==='Perigee'||l.text==='Apogee'?80:50;
-    all.sort((a,b)=>rank(b)-rank(a));
-    const rows={top:[],bottom:[]},leaders=[],gap=8,pad=8,bounds=this.projectedGeometryBounds(spacecraftPosition);
+    const rank=l=>l.scope==='angle'?100:l.scope==='spacecraft'?95:l.el.classList.contains('angle')?90:l.text==='Perigee'||l.text==='Apogee'||l.text.includes('node')?80:50;
     const aliases={'Ascending node':'AN','Descending node':'DN','Earth · focus':'Earth focus','Perigee longitude, Π':'Perigee, Π','Latitude angle, u':'Location, u'};
+    const labels=[];
     for(const l of all){
       const p=l.pos.clone().project(this.camera);l.el.dataset.feature=l.text;
-      l.el.textContent=this.width<500?(aliases[l.text]||l.text):l.text;
+      l.el.textContent=this.width<500||this.shortLabels.has(l.scope+':'+l.text)?(aliases[l.text]||l.text):l.text;
       if(p.z>1||p.z< -1||Math.abs(p.x)>1||Math.abs(p.y)>1){l.el.style.display='none';continue;}
-      l.el.style.display='';const w=l.el.offsetWidth,h=l.el.offsetHeight;
-      const key=l.scope+':'+l.text;
-      let side=this.calloutSides.get(key)||(l.scope==='spacecraft'?'bottom':p.y>0?'top':'bottom');
-      const used=side=>rows[side].reduce((n,item)=>n+item.w+gap,0);
-      if(used(side)+w>this.width-2*pad)side=side==='top'?'bottom':'top';
-      if(used(side)+w>this.width-2*pad){l.el.style.display='none';continue;}
-      this.calloutSides.set(key,side);rows[side].push({...l,w,h,x:(p.x*.5+.5)*this.width,y:(-p.y*.5+.5)*this.height});
+      l.el.style.display='';
+      labels.push({...l,id:l.scope+':'+l.text,anchor:{x:(p.x*.5+.5)*this.width,y:(-p.y*.5+.5)*this.height},w:l.el.offsetWidth,h:l.el.offsetHeight,priority:rank(l)});
     }
-    // Stable ordering uses feature identity, never the moving attachment's x coordinate.
-    for(const [side,entries] of Object.entries(rows)){
-      entries.sort((a,b)=>a.text.localeCompare(b.text));
-      const total=entries.reduce((n,l)=>n+l.w,0)+gap*Math.max(0,entries.length-1);let left=(this.width-total)/2;
-      for(const l of entries){
-        const cx=left+l.w/2,cy=side==='top'?Math.max(pad+l.h/2,bounds.top-12-l.h/2):Math.min(this.height-pad-l.h/2,bounds.bottom+12+l.h/2);left+=l.w+gap;
-        l.el.style.left=cx+'px';l.el.style.top=cy+'px';l.el.dataset.dock=side;
-        const edge=side==='top'?cy+l.h/2:cy-l.h/2;
-        const cls=l.el.classList.contains('highlight')?'callout-highlight':l.el.classList.contains('angle')?'callout-angle':'callout-neutral';
-        leaders.push(`<path data-feature="${l.text}" class="${cls}" d="M${cx.toFixed(2)},${edge.toFixed(2)}L${cx.toFixed(2)},${(edge+(side==='top'?6:-6)).toFixed(2)}L${l.x.toFixed(2)},${l.y.toFixed(2)}"/><circle data-feature="${l.text}" class="${cls}" cx="${l.x.toFixed(2)}" cy="${l.y.toFixed(2)}" r="2.5"/>`);
+    this.labelObstacles=this.annotationObstacles(spacecraftPosition);
+    let positions=placeLabels(labels,this.labelObstacles,this.width,this.height,this.labelHistory);
+    // A long node name should not force a leader to the opposite corner. Use
+    // the same familiar AN/DN shorthand as compact views when it saves space.
+    let shortened=false;
+    for(const l of labels){
+      const placement=positions.get(l.id);
+      if(l.text.includes('node')&&(!placement||placement.length>110)&&l.el.textContent!==aliases[l.text]){
+        this.shortLabels.add(l.id);l.el.textContent=aliases[l.text];l.w=l.el.offsetWidth;l.h=l.el.offsetHeight;shortened=true;
       }
+      l.el.title=l.text;
+    }
+    if(shortened)positions=placeLabels(labels,this.labelObstacles,this.width,this.height,this.labelHistory);
+    const leaders=[];
+    for(const l of labels){
+      const placement=positions.get(l.id);
+      if(!placement){l.el.style.display='none';continue;}
+      const {box,start,anchor}=placement,cx=box.x+box.w/2,cy=box.y+box.h/2;
+      l.el.style.left=cx+'px';l.el.style.top=cy+'px';l.el.dataset.dock='near';
+      this.labelHistory.set(l.id,{x:box.x,y:box.y,w:box.w,h:box.h,dx:cx-anchor.x,dy:cy-anchor.y});
+      const cls=l.el.classList.contains('highlight')?'callout-highlight':l.el.classList.contains('angle')?'callout-angle':'callout-neutral';
+      leaders.push(`<path data-feature="${l.text}" class="${cls}" d="M${start.x.toFixed(2)},${start.y.toFixed(2)}L${anchor.x.toFixed(2)},${anchor.y.toFixed(2)}"/><circle data-feature="${l.text}" class="${cls}" cx="${anchor.x.toFixed(2)}" cy="${anchor.y.toFixed(2)}" r="2.5"/>`);
     }
     this.labelLeaders.setAttribute('viewBox',`0 0 ${this.width} ${this.height}`);this.labelLeaders.innerHTML=leaders.join('');
   }

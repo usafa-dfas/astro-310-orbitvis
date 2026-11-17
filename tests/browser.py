@@ -58,36 +58,11 @@ try:
         def clean_layout():
             return page.evaluate('document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight')
         def callout_report():
-            script='''() => {
-              const scene=document.querySelector('.orbit-canvas'),area=scene.getBoundingClientRect();
-              const labels=[...document.querySelectorAll('#scene-labels .scene-label')]
-                .filter(el=>getComputedStyle(el).display!=='none');
-              const paths=[...document.querySelectorAll('.label-leaders path')];
-              let outside=true,connected=true,inside=true;
-              const boxes=labels.map(el=>el.getBoundingClientRect());
-              labels.forEach((label,i)=>{
-                const b=boxes[i],feature=label.dataset.feature;
-                // This central drawing strip is independent of the layout's own
-                // geometry bounds, and catches the former over-the-globe tags.
-                const drawing=window.orbitExplorer.snapshot().camera.bounds;
-                outside &&= b.bottom-area.top<=drawing.top || b.top-area.top>=drawing.bottom;
-                inside &&= b.left>=area.left-1 && b.right<=area.right+1 && b.top>=area.top-1 && b.bottom<=area.bottom+1;
-                const path=paths.find(p=>p.dataset.feature===feature);
-                const dot=[...document.querySelectorAll('.label-leaders circle')].find(p=>p.dataset.feature===feature);
-                if(!path||!dot){connected=false;return;}
-                const values=path.getAttribute('d').match(/-?\\d+(?:\\.\\d+)?/g).map(Number);
-                const edge=label.dataset.dock==='top'?b.bottom-area.top:b.top-area.top;
-                connected &&= Math.abs(values[0]-(b.left+b.width/2-area.left))<1.5 && Math.abs(values[1]-edge)<1.5;
-                connected &&= Math.abs(values.at(-2)-Number(dot.getAttribute('cx')))<.02 && Math.abs(values.at(-1)-Number(dot.getAttribute('cy')))<.02;
-                connected &&= parseFloat(getComputedStyle(path).strokeWidth)<=1.5;
-              });
-              const overlaps=boxes.some((a,i)=>boxes.slice(i+1).some(b=>a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top));
-              return {count:labels.length,outside,connected,inside,overlaps,paths:paths.length};
-            }'''
+            script=(ROOT/'tests/callouts.js').read_text()
             # Resizing the pane updates CSS before the renderer's next frame.
             # Wait for the actual callouts, rather than an arbitrary delay that
             # can sample the old frame under software WebGL.
-            page.wait_for_function(f'()=>{{const r=({script})();return r.count>=2&&r.outside&&r.connected&&r.inside&&!r.overlaps;}}')
+            page.wait_for_function(f'()=>{{const r=({script})();return r.count>=2&&r.clear&&r.connected&&r.inside&&!r.overlaps;}}')
             return page.evaluate(script)
 
         check(page.locator('html').get_attribute('data-theme')=='day', 'classroom theme is the default')
@@ -106,13 +81,13 @@ try:
         page.wait_for_function("document.querySelectorAll('.latitude-guide').length === 2")
         check(page.locator('.latitude-guide').count()==2, 'inclination selection reveals latitude limits')
         callouts=callout_report()
-        check(callouts['count']>=4 and callouts['outside'], 'inertial labels stay in peripheral lanes away from the animated drawing')
+        check(callouts['count']>=4 and callouts['clear'], 'inertial labels stay in clear space beside the drawing')
         check(callouts['connected'] and callouts['paths']==callouts['count'], 'every visible label has a thin leader line attached to its feature')
         check(callouts['inside'] and not callouts['overlaps'], 'callouts stay inside the canvas without overlapping one another')
         for viewpoint in ['north','equator','plane']:
             page.locator('#camera').select_option(viewpoint);page.wait_for_timeout(180)
             report=callout_report()
-            check(report['count']>=2 and report['outside'] and report['connected'] and not report['overlaps'], f'callouts remain clear and connected in the {viewpoint} camera view')
+            check(report['count']>=2 and report['clear'] and report['connected'] and not report['overlaps'], f'callouts remain clear and connected in the {viewpoint} camera view')
         page.locator('#camera').select_option('plane');page.wait_for_timeout(100)
         target=page.locator('.label-leaders circle[data-feature="Spacecraft"]')
         page.wait_for_function('document.querySelector(\'.label-leaders circle[data-feature="Spacecraft"]\') !== null')
@@ -120,7 +95,7 @@ try:
         page.locator('#play').click();page.wait_for_timeout(450);page.locator('#play').click()
         after=(float(target.get_attribute('cx')),float(target.get_attribute('cy')))
         report=callout_report()
-        check(math.hypot(after[0]-before[0],after[1]-before[1])>1 and report['connected'] and report['outside'], 'spacecraft leader follows playback while its label stays off the orbit')
+        check(math.hypot(after[0]-before[0],after[1]-before[1])>1 and report['connected'] and report['clear'], 'spacecraft leader follows playback while its label stays off the orbit')
         page.locator('#reset-scenario').click()
         page.locator('.element-card[data-key="i"] button').click()
         edit('i',120)
@@ -238,7 +213,7 @@ try:
         check(page.locator('.element-summary:visible').count()==6, 'collapsed sidebar retains all six element values')
         check(page.locator('.element-card input[type="number"]:visible').count()==0, 'collapsed pane gives its width back to the animations')
         report=callout_report()
-        check(report['count']>=3 and report['outside'] and report['connected'], 'projector labels stay off the orbit and keep their leader lines')
+        check(report['count']>=3 and report['clear'] and report['connected'], 'projector labels stay off the orbit and keep their leader lines')
         page.screenshot(path=str(RESULTS/'projector-after-931.png'))
 
         snapshot_before=snapshot()
@@ -266,7 +241,7 @@ try:
         overlaps=any(a['left']<b['right'] and a['right']>b['left'] and a['top']<b['bottom'] and a['bottom']>b['top'] for i,a in enumerate(boxes) for b in boxes[i+1:])
         check(len(boxes)>2 and not overlaps, '3D labels stay separated even with all geometry overlays enabled')
         report=callout_report()
-        check(report['outside'] and report['connected'] and report['inside'], 'all-geometry callouts stay outside the drawing on the small projector layout')
+        check(report['clear'] and report['connected'] and report['inside'], 'all-geometry callouts stay outside the drawing on the small projector layout')
         page.screenshot(path=str(RESULTS/'projector-all-geometry-931.png'))
         for width,height in [(1024,768),(960,600)]:
             page.set_viewport_size({'width':width,'height':height});page.wait_for_timeout(150)
